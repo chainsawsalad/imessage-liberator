@@ -1,0 +1,35 @@
+{
+  "development": {
+    "log": {
+      "path": "./log/"
+    },
+    "database": {
+      "host": "postgres",
+      "database": "liberator",
+      "user": "liberator",
+      "password": "imessage"
+    },
+    "https": {
+      "privateKey": "ssl/development.key",
+      "fullChain": "ssl/development.crt"
+    }
+  },
+  "production": {
+    "log": {
+      "path": "./log/"
+    },
+    "database": {
+      "host": "postgres",
+      "database": "liberator",
+      "user": "liberator",
+      "password": "imessage",
+      "port": 5432
+    },
+    "https": {
+      "path": "/etc/letsencrypt/live/live.iwannaseeit.com",
+      "privateKey": "privkey.pem",
+      "fullChain": "fullchain.pem",
+      "certificateAuthority": "chain.pem"
+    }
+  }
+}

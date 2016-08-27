@@ -1,0 +1,6 @@
+{
+  "events": {
+    "start": "node-inspector --hidden node_modules --preload false",
+    "restart": "echo \"Killing node-inspector\" ; pkill node-inspector ; echo \"Killed node-inspector\" ; node-inspector --hidden node_modules --preload false"
+  }
+}

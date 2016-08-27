@@ -1,0 +1,17 @@
+node:
+  build: .
+  ports:
+   - "80:80"
+   - "443:443"
+   - "8080:8080"
+  volumes:
+   - .:/usr/src/app/
+  links:
+   - postgres
+  environment:
+    SLACK_API_KEY:
+
+postgres:
+  build: database/
+  ports:
+   - "5432:5432"
