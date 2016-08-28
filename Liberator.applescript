@@ -1,23 +1,39 @@
-on rpc(theServiceId, theHandle, theFullName, theMessage, theType, theEventName)
-	set scriptName to "liberateMessage.sh"
-	set scriptName to do shell script "eval `/usr/libexec/path_helper -s`; which " & scriptName
-
-	do shell script scriptName & " \"" & theMessage & "\" \"" & theFullName & "\""
-	say theEventName
-end rpc
+on logger(logString)
+	set logFile to "iMessageLiberator"
+	do shell script "echo `date '+%Y-%m-%d %T: '`\"" & logString & "\" >> $HOME/Library/Logs/" & logFile & ".log"
+end logger
 
 using terms from application "Messages"
+	on rpc(theBuddy, theMessage, theType, theEventName)
+		set theServiceId to (id of service of theBuddy)
+		set theServiceType to (service type of service of theBuddy)
+		set theHandle to (handle of theBuddy)
+		set theFullName to (full name of theBuddy)
+
+		my logger("(" & theEventName & ", " & theType & ") [" & theMessage & "] from [" & theFullName & ", " & theHandle & ", " & theServiceId & ", " & theServiceType & "]")
+
+		if theServiceType is "iMessage" then
+			try
+				set scriptName to "liberateMessage.sh"
+				set scriptName to (do shell script ("eval `/usr/libexec/path_helper -s`; which " & scriptName))
+				do shell script scriptName & " \"" & theMessage & "\" \"" & theFullName & "\""
+			on error e number n
+				my logger("ERROR: " & e & " " & n)
+			end try
+		end if
+	end rpc
+
 	on processEvent(eventName, theMessage, theBuddy)
 		if contents of theMessage is not "" then
-			my rpc((id of service of theBuddy), (handle of theBuddy), (full name of theBuddy), theMessage, "msg", eventName)
+			my rpc(theBuddy, theMessage, "text", eventName)
 
-			-- `completed file transfer` event is broken
+		-- `completed file transfer` event is broken
 		else if direction of last file transfer is incoming then
 			-- compare diff in seconds
 			if (current date) - (started of last file transfer) < 5 then
 				set f to file of the last file transfer
 				set fileName to POSIX path of f
-				my rpc((id of service of theBuddy), (handle of theBuddy), (full name of theBuddy), fileName, "msg", eventName & " (file)")
+				my rpc(theBuddy, fileName, "file", eventName)
 			end if
 		end if
 	end processEvent
