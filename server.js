@@ -43,7 +43,7 @@ function slackSendMessage(body, channelId, sender, senderImage) {
       channel: channelId,
       username: sender,
       text: body,
-      icon_emoji: ':ghost:'
+      icon_emoji: ':dog2:'
     }
   };
 
