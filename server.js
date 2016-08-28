@@ -11,43 +11,12 @@ function generateSlackChannelName(channelName) {
   return channelName.toLowerCase().replace(/[\s\.]/g, '').slice(0, 21);
 }
 
-function slackCheckChannel(channelName) {
+function slackJoinChannel(channelName) {
   var options = {
-    url: 'https://slack.com/api/channels.list',
+    url: 'https://slack.com/api/channels.join',
     method: 'GET',
     json: true,
     qs: {
-      token: slackOauthToken,
-      exclude_archived: 1
-    }
-  };
-
-  return new Promise(function (resolve, reject) {
-    httpRequest(options, function (error, response, body) {
-      var channelFound;
-      if (response.statusCode >= 400 || !body.ok) {
-        reject(error || body.error);
-      } else {
-        channelFound = (body.channels || []).some(function (channel) {
-          if (channel.name === channelName) {
-            resolve(channel.id);
-            return true;
-          }
-        });
-        if (!channelFound) {
-          reject('channel_not_found');
-        }
-      }
-    });
-  });
-}
-
-function slackCreateChannel(channelName) {
-  var options = {
-    url: 'https://slack.com/api/channels.create',
-    method: 'POST',
-    json: true,
-    form: {
       token: slackOauthToken,
       name: channelName
     }
@@ -58,7 +27,7 @@ function slackCreateChannel(channelName) {
       if (response.statusCode >= 400 || !body.ok) {
         reject(error || body.error);
       } else {
-        resolve(body.channel.id);
+        resolve(body.channel.name);
       }
     });
   });
@@ -98,17 +67,10 @@ function messageReceived(request, response, next) {
   var body = request.params.body;
   var sender = request.params.sender;
   var senderImage = request.params.senderImage;
-  var channelName = generateSlackChannelName(sender);
 
-  slackCheckChannel(channelName)
-  .catch(function (error) {
-    if (error === 'channel_not_found') {
-      return slackCreateChannel(channelName);
-    }
-    throw new Error(error);
-  })
-  .then(function (channelId) {
-    return slackSendMessage(body, channelId, sender, senderImage);
+  slackJoinChannel(generateSlackChannelName(sender))
+  .then(function (channelName) {
+    return slackSendMessage(body, channelName, sender, senderImage);
   }).then(function (result) {
     logger.verbose('Slack message success', result);
   }).catch(function (error) {
