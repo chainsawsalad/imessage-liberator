@@ -33,14 +33,14 @@ function slackJoinChannel(channelName) {
   });
 }
 
-function slackSendMessage(body, channelId, sender, senderImage) {
+function slackSendMessage(body, channelName, sender, senderImage) {
   var options = {
     url: 'https://slack.com/api/chat.postMessage',
     method: 'POST',
     json: true,
     form: {
       token: slackOauthToken,
-      channel: channelId,
+      channel: channelName,
       username: sender,
       text: body,
       icon_emoji: ':dog2:'
