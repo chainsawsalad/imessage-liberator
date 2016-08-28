@@ -9,7 +9,7 @@ node:
   links:
    - postgres
   environment:
-    SLACK_API_KEY:
+    SLACK_OAUTH_TOKEN:
 
 postgres:
   build: database/

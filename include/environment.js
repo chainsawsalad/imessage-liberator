@@ -93,6 +93,13 @@ module.exports.getIpAddress = function () {
   return '127.0.0.1';
 };
 
+module.exports.getSlackOauthToken = function () {
+  if (!process.env.SLACK_OAUTH_TOKEN) {
+    throw new Error('Missing Slack OAuth token');
+  }
+  return process.env.SLACK_OAUTH_TOKEN;
+};
+
 if (module.exports.isDevelopment()) {
   environment = environment.development;
 } else {

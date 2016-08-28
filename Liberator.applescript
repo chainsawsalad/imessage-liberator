@@ -9,14 +9,22 @@ using terms from application "Messages"
 		set theServiceType to (service type of service of theBuddy)
 		set theHandle to (handle of theBuddy)
 		set theFullName to (full name of theBuddy)
+		set theBuddyImage to (image of theBuddy)
 
-		my logger("(" & theEventName & ", " & theType & ") [" & theMessage & "] from [" & theFullName & ", " & theHandle & ", " & theServiceId & ", " & theServiceType & "]")
+		my logger("(" & theEventName & ", " & theType & ") [" & theMessage & "] from [" & theFullName & ", " & theHandle & ", " & theBuddyImage & ", " & theServiceId & ", " & theServiceType & "]")
 
-		if theServiceType is "iMessage" then
+		if (theServiceType as string) is equal to "iMessage" then
 			try
 				set scriptName to "liberateMessage.sh"
 				set scriptName to (do shell script ("eval `/usr/libexec/path_helper -s`; which " & scriptName))
-				do shell script scriptName & " \"" & theMessage & "\" \"" & theFullName & "\""
+				set rpcCall to scriptName & " \"" & theMessage & "\" \"" & theFullName & "\""
+
+				if theBuddyImage is not equal to missing value then
+					set rpcCall to rpcCall & " \"" & theBuddyImage & "\""
+				end if
+
+				do shell script rpcCall
+
 			on error e number n
 				my logger("ERROR: " & e & " " & n)
 			end try
@@ -27,7 +35,7 @@ using terms from application "Messages"
 		if contents of theMessage is not "" then
 			my rpc(theBuddy, theMessage, "text", eventName)
 
-		-- `completed file transfer` event is broken
+			-- `completed file transfer` event is broken
 		else if direction of last file transfer is incoming then
 			-- compare diff in seconds
 			if (current date) - (started of last file transfer) < 5 then
