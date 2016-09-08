@@ -1,7 +1,7 @@
 var path = require('path');
 var httpRequest = require('request');
 var restify = require('restify');
-var socketIo = require('socket.io-client');
+var WebSocket = require('ws');
 var logger = require(path.join(__dirname, '/include/logger.js'));
 var environment = require(path.join(__dirname, '/include/environment.js'));
 var slackOauthToken = environment.getSlackOauthToken();
@@ -133,18 +133,35 @@ function messageFromMe(message) {
 
 function connectSlackSocket(socketUrl) {
   return new Promise(function (resolve, reject) {
-    var socket = socketIo.connect(socketUrl);
-    socket.on('connect', function () {
-      logger.verbose('Websocket connected successfully to %s', socketUrl);
-    });
-    socket.on('error', function (error) {
+    var onError = function onError(error) {
       logger.error('Error encountered on websocket connection', error);
       reject(error);
+    };
+    var onMessage = function onMessage(data) {
+      var message = JSON.parse(data);
+      if (message.type === 'hello') {
+        logger.verbose('Slack `hello` received');
+        socket.removeListener('error', onError);
+        socket.removeListener('message', onMessage);
+        return resolve(socket);
+      }
+      logger.verbose('Unexpected Slack response received');
+      return reject(message);
+    };
+    var ackTimeoutPid = setTimeout(function () {
+      logger.verbose('Timeout occurred waiting for Slack acknowledgement');
+      socket.close();
+      return reject('timeout');
+    }, 30000);
+    var socket = new WebSocket(socketUrl);
+
+    socket.on('open', function onOpen() {
+      logger.verbose('Websocket connected successfully to %s', socketUrl);
+      clearTimeout(ackTimeoutPid);
+      socket.removeListener('open', onOpen);
     });
-    socket.on('hello', function () {
-      logger.verbose('Slack `hello` receive');
-      resolve(socket);
-    });
+    socket.on('error', onError);
+    socket.on('message', onMessage);
   });
 }
 
@@ -156,7 +173,13 @@ function startRestServer(socket) {
     messageToMe(socket, request, response, next);
   });
 
-  socket.on('message', messageFromMe);
+  socket.on('error', function (error) {
+    logger.error('Socket error encountered', error);
+  });
+  socket.on('message', function (data) {
+    var message = JSON.parse(data);
+    messageFromMe(message);
+  });
 
   return new Promise(function (resolve, reject) {
     server.listen(insecurePort, function () {
