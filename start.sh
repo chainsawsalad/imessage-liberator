@@ -9,4 +9,4 @@ if [ "$NODE_ENV" == "production" ]; then
     exit 0;
 fi
 
-nodemon -V -I --watch include --watch server.js --debug-brk server.js
+nodemon -V -I --watch include --watch server.js --debug server.js
