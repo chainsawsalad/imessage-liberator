@@ -1,7 +1,10 @@
 var path = require('path');
-var httpRequest = require('request');
 var restify = require('restify');
-var WebSocket = require('ws');
+var SlackClient = require('@slack/client');
+var SlackRtmClient = SlackClient.RtmClient;
+var SlackWebClient = require('@slack/client').WebClient;
+var SLACK_RTM_CLIENT_EVENTS = SlackClient.CLIENT_EVENTS.RTM;
+var SLACK_RTM_EVENTS = SlackClient.RTM_EVENTS;
 var logger = require(path.join(__dirname, '/include/logger.js'));
 var environment = require(path.join(__dirname, '/include/environment.js'));
 var slackOauthToken = environment.getSlackOauthToken();
@@ -11,58 +14,114 @@ var Channel = {
   'SLACK': '0'
 };
 
-var connectedSocket = null;
+var slackChannelIdsBySender = {};
 var slackChannelNamesById = {};
+var channelTransports = {};
 var messagesToMeQueue = {};
 
+channelTransports[Channel.SLACK] = {
+  web: new SlackWebClient(slackOauthToken),
+  rtm: null
+};
 messagesToMeQueue[Channel.SLACK] = [];
 
 
-function slackLoadChannels() {
-  var options = {
-    url: 'https://slack.com/api/channels.list',
-    method: 'GET',
-    json: true,
-    qs: {
-      token: slackOauthToken
-    }
-  };
-
+function slackConnectRtmClient() {
   return new Promise(function (resolve, reject) {
-    httpRequest(options, function (error, response, body) {
-      if (response.statusCode >= 400 || !body.ok) {
-        reject(error || body.error);
-      } else {
-        slackChannelNamesById = {};
-        body.channels.forEach(function (channel) {
-          slackChannelNamesById[channel.id] = channel.name;
-        });
-        resolve(slackChannelNamesById);
-      }
+    var rtm = new SlackRtmClient(slackOauthToken, {
+      //logLevel: 'debug'
     });
+    var rejectPid = null;
+
+    rtm.on(SLACK_RTM_CLIENT_EVENTS.AUTHENTICATED, function (event) {
+      logger.verbose('Logged into Slack as %s of team %s', event.self.name, event.team.name);
+    });
+
+    rtm.on(SLACK_RTM_CLIENT_EVENTS.RTM_CONNECTION_OPENED, function () {
+      logger.verbose('Slack connection opened');
+      clearTimeout(rejectPid);
+      resolve(rtm);
+    });
+
+    rtm.on(SLACK_RTM_CLIENT_EVENTS.UNABLE_TO_RTM_START, function (event) {
+      rejectPid = setTimeout(function () {
+        reject(event);
+      }, 10000);
+    });
+
+    rtm.on(SLACK_RTM_CLIENT_EVENTS.RAW_MESSAGE, function (event) {
+      logger.silly('Slack event encountered', event);
+    });
+
+    rtm.start();
   });
 }
 
-function slackAuthenticate() {
+function listenToSlackRtmEndpoints(rtm) {
+  rtm.on(SLACK_RTM_CLIENT_EVENTS.ATTEMPTING_RECONNECT, function () {
+    logger.warn('Slack reconnecting to API');
+  });
+
+  rtm.on(SLACK_RTM_CLIENT_EVENTS.DISCONNECT, function () {
+    logger.error('Slack disconnected from API');
+    channelTransports[Channel.SLACK].rtm = null;
+    slackConnectRtmClient().then(listenToSlackRtmEndpoints);
+  });
+
+  rtm.on(SLACK_RTM_EVENTS.MESSAGE, function (message) {
+    logger.silly('Slack `message` event received', message);
+    messageFromMe({
+      messageTo: slackChannelNamesById[message.channel],
+      body: message.text
+    });
+  });
+
+  channelTransports[Channel.SLACK].rtm = rtm;
+}
+
+function slackLoadChannels() {
+  return channelTransports[Channel.SLACK].web.channels.makeAPICall('channels.list')
+  .then(function (response) {
+    var slackChannelNamesById = {};
+    logger.debug('Slack `channels.list` success', response);
+    response.channels.forEach(function (channel) {
+      slackChannelNamesById[channel.id] = channel.name;
+    });
+    return slackChannelNamesById;
+  });
+}
+
+function slackJoinChannel(channelName) {
+  if (slackChannelIdsBySender[channelName]) {
+    return Promise.resolve(slackChannelIdsBySender[channelName]);
+  } else {
+    return channelTransports[Channel.SLACK].web.channels.makeAPICall('channels.join', {
+      name: channelName
+    }).then(function (response) {
+      logger.debug('Slack `channels.join` success', response);
+      slackChannelNamesById[response.channel.id] = response.channel.name;
+      return response.channel.id;
+    });
+  }
+}
+
+function slackSendMessage(channelId, message) {
   var options = {
-    url: 'https://slack.com/api/rtm.start',
-    method: 'GET',
-    json: true,
-    qs: {
-      token: slackOauthToken,
-      simple_latest: true,
-      no_unreads: true
-    }
+    channel: channelId,
+    username: message.sender,
+    text: message.body,
+    icon_emoji: ':dog2:'
   };
 
-  return new Promise(function (resolve, reject) {
-    httpRequest(options, function (error, response, body) {
-      if (response.statusCode >= 400 || !body.ok) {
-        reject(error || body.error);
-      } else {
-        resolve(body.url);
-      }
-    });
+  if (message.senderImage) {
+    options.icon_url = message.senderImage;
+    delete options.icon_emoji;
+  }
+
+  return channelTransports[Channel.SLACK].web.chat.makeAPICall('chat.postMessage', options)
+  .then(function (response) {
+    logger.debug('Slack `chat.postMessage` success', response);
+    return response.message.text;
   });
 }
 
@@ -71,96 +130,33 @@ function generateSlackChannelName(channelName) {
   return channelName.toLowerCase().replace(/[\s\.]/g, '').slice(0, 21);
 }
 
-function slackJoinChannel(channelName) {
-  var options = {
-    url: 'https://slack.com/api/channels.join',
-    method: 'GET',
-    json: true,
-    qs: {
-      token: slackOauthToken,
-      name: channelName
-    }
-  };
-
-  return new Promise(function (resolve, reject) {
-    httpRequest(options, function (error, response, body) {
-      if (response.statusCode >= 400 || !body.ok) {
-        reject(error || body.error);
-      } else {
-        logger.debug('Slack `channels.join` success', body);
-        slackChannelNamesById[body.channel.id] = body.channel.name;
-        resolve(body.channel.id);
-      }
-    });
-  });
-}
-
-/**
-function slackEventSendMessage(body, channelName, sender, senderImage) {
-  var options = {
-    url: 'https://slack.com/api/chat.postMessage',
-    method: 'POST',
-    json: true,
-    form: {
-      token: slackOauthToken,
-      channel: channelName,
-      username: sender,
-      text: body,
-      icon_emoji: ':dog2:'
-    }
-  };
-
-  if (senderImage) {
-    options.icon_url = senderImage;
-    delete options.icon_emoji;
-  }
-
-  return new Promise(function (resolve, reject) {
-    httpRequest(options, function (error, response, body) {
-      if (response.statusCode >= 400 || !body.ok) {
-        reject(error || body.error);
-      } else {
-        resolve(body.message.text);
-      }
-    });
-  });
-}
-*/
-
 function flushMessageQueue(channel) {
   messagesToMeQueue[channel].forEach(function (message) {
     // TODO: connectedSocket should be organized in a way that is channel specific
-    sendMessage(connectedSocket, message);
   });
   messagesToMeQueue[channel] = [];
 }
 
-function sendMessage(socket, message) {
-  socket.send(JSON.stringify(message));
-  logger.verbose('Message sent', message);
-}
+function sendMessage(message) {
+  var channelUserMessageQueue = messagesToMeQueue[Channel.SLACK];
+  var newChannelName = generateSlackChannelName(message.sender);
 
-function slackRtmSendMessage(channelId, message) {
-  var slackMessage = {
-    token: slackOauthToken,
-    type: 'chat.postMessage',
-    channel: channelId,
-    username: message.sender,
-    text: message.body,
-    icon_emoji: ':dog2:'
-  };
+  // TODO: determine if this message goes out to Slack or some other `Channel`
 
-  if (message.senderImage) {
-    slackMessage.icon_url = message.senderImage;
-    delete slackMessage.icon_emoji;
-  }
-
-  if (connectedSocket === null || connectedSocket.readyState !== WebSocket.OPEN) {
-    messagesToMeQueue[Channel.SLACK].push(slackMessage);
-    logger.warn('Queuing Slack message', slackMessage);
-  } else {
-    sendMessage(connectedSocket, slackMessage);
-  }
+  slackJoinChannel(newChannelName)
+  .then(function (channelId) {
+    slackChannelIdsBySender[newChannelName] = channelId;
+    return slackSendMessage(channelId, message);
+  }).then(function () {
+    logger.debug('Slack message success');
+    channelUserMessageQueue[message.sender].shift();
+    if (channelUserMessageQueue[message.sender].length > 0) {
+      logger.debug('Processing Slack queue message');
+      sendMessage(channelUserMessageQueue[message.sender][0]);
+    }
+  }).catch(function (error) {
+    logger.error('Failure in sending Slack message', error);
+  });
 }
 
 function messageToMe(request, response, next) {
@@ -169,18 +165,17 @@ function messageToMe(request, response, next) {
     sender: request.params.sender,
     senderImage: request.params.senderImage
   };
+  var channelUserMessageQueue = messagesToMeQueue[Channel.SLACK];
 
-  // TODO: determine if this message goes out to slack or some other `Channel`
-
-  slackJoinChannel(generateSlackChannelName(message.sender))
-  .then(function (channelId) {
-    slackRtmSendMessage(channelId, message);
-    return Promise.resolve();
-  }).then(function () {
-    logger.debug('Slack message success');
-  }).catch(function (error) {
-    logger.error('Failure in sending Slack message', error);
-  });
+  if ((channelUserMessageQueue[message.sender] || []).length > 0) {
+    logger.debug('Queuing Slack message', message);
+    channelUserMessageQueue[message.sender].push(message);
+  } else {
+    channelUserMessageQueue[message.sender] = [
+      message
+    ];
+    sendMessage(message);
+  }
 
   logger.info('Message to me received', message);
 
@@ -190,40 +185,6 @@ function messageToMe(request, response, next) {
 
 function messageFromMe(message) {
   logger.info('Message from me sent', message);
-}
-
-function connectSlackSocket(socketUrl) {
-  return new Promise(function (resolve, reject) {
-    var onError = function onError(error) {
-      logger.error('Error encountered on websocket connection', error);
-      reject(error);
-    };
-    var onMessage = function onMessage(data) {
-      var message = JSON.parse(data);
-      if (message.type === 'hello') {
-        logger.verbose('Slack `hello` received');
-        socket.removeListener('error', onError);
-        socket.removeListener('message', onMessage);
-        return resolve(socket);
-      }
-      logger.verbose('Unexpected Slack response received');
-      return reject(message);
-    };
-    var ackTimeoutPid = setTimeout(function () {
-      logger.verbose('Timeout occurred waiting for Slack acknowledgement');
-      socket.close();
-      return reject('timeout');
-    }, 30000);
-    var socket = new WebSocket(socketUrl);
-
-    socket.on('open', function onOpen() {
-      logger.verbose('Websocket connected successfully to %s', socketUrl);
-      clearTimeout(ackTimeoutPid);
-      socket.removeListener('open', onOpen);
-    });
-    socket.on('error', onError);
-    socket.on('message', onMessage);
-  });
 }
 
 function startRestServer() {
@@ -242,82 +203,6 @@ function startRestServer() {
   });
 }
 
-function listenToSlackSocketEndpoints(socket) {
-  var reconnectUrl = null;
-
-  socket.on('error', function (error) {
-    logger.error('Socket error encountered', error);
-    reconnectSlackSocket(reconnectUrl);
-  });
-
-  socket.on('close', function () {
-    connectedSocket = null;
-  });
-
-  socket.on('message', function (data) {
-    var message = data;
-
-    try {
-      message = JSON.parse(message);
-    } catch (error) {
-      logger.warn('Received invalid JSON format for Slack', message);
-    }
-
-    logger.silly('Slack `message` event received', message);
-
-    switch (message.type) {
-      case 'error':
-        logger.error('Received Slack error', message);
-        break;
-
-      case 'reconnect_url':
-        // https://api.slack.com/events/reconnect_url
-        reconnectUrl = message.url;
-        break;
-
-      case 'message':
-        // https://api.slack.com/events/message
-        if (typeof message.reply_to === 'number') {
-          logger.verbose('Sent Slack message confirmed', message);
-        } else {
-          messageFromMe({
-            messageTo: slackChannelNamesById[message.channel],
-            body: message.text
-          });
-        }
-        break;
-
-      default:
-        // ignore all other messages
-        logger.debug('Unexpected Slack event received', message);
-        break;
-    }
-  });
-
-  connectedSocket = socket;
-}
-
-function reconnectSlackSocket(reconnectUrl) {
-  var onSocketReconnect = function (reconnectedSocket) {
-    logger.info('Reconnected socket successfully to %s', reconnectUrl);
-    listenToSlackSocketEndpoints(reconnectedSocket);
-    flushMessageQueue(Channel.SLACK);
-  };
-  var retrySocketConnect = function (error) {
-    var retryTime = 10000;
-    logger.error('Failure on reconnection of socket, trying again in %d', retryTime, error);
-    setTimeout(function () {
-      slackAuthenticate().then(connectSlackSocket).then(onSocketReconnect).catch(retrySocketConnect);
-    }, retryTime);
-  };
-
-  if (reconnectUrl) {
-    return connectSlackSocket(reconnectUrl).then(onSocketReconnect).catch(retrySocketConnect);
-  }
-
-  return slackAuthenticate().then(connectSlackSocket).then(onSocketReconnect).catch(retrySocketConnect);
-}
-
 function listenToRestEndpoints(server) {
   server.post('/message/receive', function (request, response, next) {
     messageToMe(request, response, next);
@@ -326,11 +211,12 @@ function listenToRestEndpoints(server) {
 
 Promise.all([
   slackLoadChannels(),
-  slackAuthenticate().then(connectSlackSocket),
+  slackConnectRtmClient(),
   startRestServer()
 ]).then(function (values) {
   // need channels to load before listening begins
-  listenToSlackSocketEndpoints(values[1]);
+  slackChannelNamesById = values[0];
+  listenToSlackRtmEndpoints(values[1]);
   listenToRestEndpoints(values[2]);
 
   logger.info('Startup completed successfully');
