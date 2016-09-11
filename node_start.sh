@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# In the Docker container, start the Node.js server
+
 date=$(date +"%Y-%m-%d_%T")
 
 if [ "$NODE_ENV" == "production" ]; then

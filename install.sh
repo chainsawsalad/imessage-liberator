@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Install the needed scripts and configurations on the host system
+
 # tell the system $PATH where iMessage Liberator is via `path_helper`
 sudo sh -c 'echo `pwd` > /etc/paths.d/imessage_liberator'
 
