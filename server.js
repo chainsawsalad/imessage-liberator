@@ -72,13 +72,21 @@ function listenToSlackRtmEndpoints(rtm) {
   });
 
   rtm.on(SLACK_RTM_EVENTS.MESSAGE, function (message) {
+    var recipientHandle;
+
     // only listen to pure messages
     if (!message.subtype) {
       logger.debug('Slack `message` event received', message);
-      messageFromMe({
-        messageTo: senderHandleBySlackChannelIds[message.channel],
-        body: message.text
-      });
+
+      recipientHandle = senderHandleBySlackChannelIds[message.channel];
+      if (!recipientHandle) {
+        logger.warn('Message from me not sent: Unknown recipient handle for channel', message);
+      } else {
+        messageFromMe({
+          messageTo: recipientHandle,
+          body: message.text
+        });
+      }
     } else if (message.subtype === 'file_share') {
       // TODO: implement file sharing
       logger.debug('Slack `message.file_share` event received', message);
