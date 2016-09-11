@@ -17,7 +17,7 @@ using terms from application "Messages"
 			try
 				set scriptName to "liberateMessage.sh"
 				set scriptName to (do shell script ("eval `/usr/libexec/path_helper -s`; which " & scriptName))
-				set rpcCall to scriptName & " \"" & theMessage & "\" \"" & theFullName & "\""
+				set rpcCall to scriptName & " \"" & theMessage & "\" \"" & theHandle & "\" \"" & theFullName & "\""
 
 				if theBuddyImage is not equal to missing value then
 					set rpcCall to rpcCall & " \"" & theBuddyImage & "\""

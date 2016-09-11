@@ -14,8 +14,9 @@ var Channel = {
   'SLACK': '0'
 };
 
-var slackChannelIdsBySender = {};
-var slackChannelNamesById = {};
+
+var senderHandleBySlackChannelIds = {}; // mapping of Slack channel to iMessage buddy
+var slackChannelIdsByName = {}; // if we have a record of the channel here, we assume we've joined
 var channelTransports = {};
 var messagesToMeQueue = {};
 
@@ -71,7 +72,7 @@ function listenToSlackRtmEndpoints(rtm) {
   rtm.on(SLACK_RTM_EVENTS.MESSAGE, function (message) {
     logger.silly('Slack `message` event received', message);
     messageFromMe({
-      messageTo: slackChannelNamesById[message.channel],
+      messageTo: senderHandleBySlackChannelIds[message.channel],
       body: message.text
     });
   });
@@ -82,24 +83,24 @@ function listenToSlackRtmEndpoints(rtm) {
 function slackLoadChannels() {
   return channelTransports[Channel.SLACK].web.channels.makeAPICall('channels.list')
   .then(function (response) {
-    var slackChannelNamesById = {};
+    var channelIdsByName = {};
     logger.debug('Slack `channels.list` success', response);
     response.channels.forEach(function (channel) {
-      slackChannelNamesById[channel.id] = channel.name;
+      channelIdsByName[channel.name] = channel.id;
     });
-    return slackChannelNamesById;
+    return channelIdsByName;
   });
 }
 
 function slackJoinChannel(channelName) {
-  if (slackChannelIdsBySender[channelName]) {
-    return Promise.resolve(slackChannelIdsBySender[channelName]);
+  if (slackChannelIdsByName[channelName]) {
+    return Promise.resolve(slackChannelIdsByName[channelName]);
   } else {
     return channelTransports[Channel.SLACK].web.channels.makeAPICall('channels.join', {
       name: channelName
     }).then(function (response) {
       logger.debug('Slack `channels.join` success', response);
-      slackChannelNamesById[response.channel.id] = response.channel.name;
+      slackChannelIdsByName[response.channel.name] = response.channel.id;
       return response.channel.id;
     });
   }
@@ -108,7 +109,7 @@ function slackJoinChannel(channelName) {
 function slackSendMessage(channelId, message) {
   var options = {
     channel: channelId,
-    username: message.sender,
+    username: message.senderName,
     text: message.body,
     icon_emoji: ':dog2:'
   };
@@ -127,32 +128,25 @@ function slackSendMessage(channelId, message) {
 
 function generateSlackChannelName(channelName) {
   // Channel names must be 21 characters or fewer, lower case, and cannot contain spaces or periods.
-  return channelName.toLowerCase().replace(/[\s\.]/g, '').slice(0, 21);
-}
-
-function flushMessageQueue(channel) {
-  messagesToMeQueue[channel].forEach(function (message) {
-    // TODO: connectedSocket should be organized in a way that is channel specific
-  });
-  messagesToMeQueue[channel] = [];
+  return (channelName || '').toLowerCase().replace(/[\s\.]/g, '').slice(0, 21);
 }
 
 function sendMessage(message) {
   var channelUserMessageQueue = messagesToMeQueue[Channel.SLACK];
-  var newChannelName = generateSlackChannelName(message.sender);
+  var newChannelName = generateSlackChannelName(message.senderName);
 
   // TODO: determine if this message goes out to Slack or some other `Channel`
 
   slackJoinChannel(newChannelName)
   .then(function (channelId) {
-    slackChannelIdsBySender[newChannelName] = channelId;
+    senderHandleBySlackChannelIds[channelId] = message.senderHandle;
     return slackSendMessage(channelId, message);
   }).then(function () {
     logger.debug('Slack message success');
-    channelUserMessageQueue[message.sender].shift();
-    if (channelUserMessageQueue[message.sender].length > 0) {
+    channelUserMessageQueue[message.senderName].shift();
+    if (channelUserMessageQueue[message.senderName].length > 0) {
       logger.debug('Processing Slack queue message');
-      sendMessage(channelUserMessageQueue[message.sender][0]);
+      sendMessage(channelUserMessageQueue[message.senderName][0]);
     }
   }).catch(function (error) {
     logger.error('Failure in sending Slack message', error);
@@ -162,29 +156,37 @@ function sendMessage(message) {
 function messageToMe(request, response, next) {
   var message = {
     body: request.params.body,
-    sender: request.params.sender,
+    senderHandle: request.params.senderHandle,
+    senderName: request.params.senderName,
     senderImage: request.params.senderImage
   };
   var channelUserMessageQueue = messagesToMeQueue[Channel.SLACK];
 
-  if ((channelUserMessageQueue[message.sender] || []).length > 0) {
+  logger.info('Message to me received', message);
+
+  if (!message.body || !message.senderHandle) {
+    message.error = 'Missing required message fields';
+    response.send(500, message);
+    return next(message.error);
+  }
+
+  if ((channelUserMessageQueue[message.senderName] || []).length > 0) {
     logger.debug('Queuing Slack message', message);
-    channelUserMessageQueue[message.sender].push(message);
+    channelUserMessageQueue[message.senderName].push(message);
   } else {
-    channelUserMessageQueue[message.sender] = [
+    channelUserMessageQueue[message.senderName] = [
       message
     ];
     sendMessage(message);
   }
 
-  logger.info('Message to me received', message);
-
-  response.send(request.params);
-  next();
+  response.send(message);
+  return next();
 }
 
 function messageFromMe(message) {
   logger.info('Message from me sent', message);
+
 }
 
 function startRestServer() {
@@ -215,7 +217,7 @@ Promise.all([
   startRestServer()
 ]).then(function (values) {
   // need channels to load before listening begins
-  slackChannelNamesById = values[0];
+  slackChannelIdsByName = values[0];
   listenToSlackRtmEndpoints(values[1]);
   listenToRestEndpoints(values[2]);
 
