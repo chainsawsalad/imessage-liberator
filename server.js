@@ -73,11 +73,17 @@ function listenToSlackRtmEndpoints(rtm) {
   });
 
   rtm.on(SLACK_RTM_EVENTS.MESSAGE, function (message) {
-    logger.silly('Slack `message` event received', message);
-    messageFromMe({
-      messageTo: senderHandleBySlackChannelIds[message.channel],
-      body: message.text
-    });
+    // only listen to pure messages
+    if (!message.subtype) {
+      logger.debug('Slack `message` event received', message);
+      messageFromMe({
+        messageTo: senderHandleBySlackChannelIds[message.channel],
+        body: message.text
+      });
+    } else if (message.subtype === 'file_share') {
+      // TODO: implement file sharing
+      logger.debug('Slack `message.file_share` event received', message);
+    }
   });
 
   channelTransports[Channel.SLACK].rtm = rtm;
@@ -173,9 +179,12 @@ function messageToMe(request, response, next) {
     return next(message.error);
   }
 
+  // there is already a message in the queue
   if ((channelUserMessageQueue[message.senderName] || []).length > 0) {
     logger.debug('Queuing Slack message', message);
     channelUserMessageQueue[message.senderName].push(message);
+
+  // the queue is empty
   } else {
     channelUserMessageQueue[message.senderName] = [
       message
