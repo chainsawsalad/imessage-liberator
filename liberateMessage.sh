@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Called by iMessage's AppleScript handler for every incomping iMessage
+# Sends the message to the Docker container
+
 curl -X POST \
   -H "Cache-Control: no-cache" \
   -H "Content-Type: application/x-www-form-urlencoded" \

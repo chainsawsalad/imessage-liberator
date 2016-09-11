@@ -6,7 +6,7 @@
 sudo sh -c 'echo `pwd` > /etc/paths.d/imessage_liberator'
 
 # install the AppleScript iMessage handler
-cp *.applescript ~/Library/Application\ Scripts/com.apple.iChat
+cp Liberator.applescript ~/Library/Application\ Scripts/com.apple.iChat
 
 # allows Docker containers to access host
 # see "I want to connect from a container to a service on the host" https://docs.docker.com/docker-for-mac/networking/

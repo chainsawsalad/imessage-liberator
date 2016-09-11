@@ -6,7 +6,8 @@
   "scripts": {
     "servers": "./start_servers.sh",
     "start": "./node_start.sh",
-    "install": "./install.sh"
+    "install": "./install.sh",
+    "uninstall": "./uninstall.sh"
   },
   "engines": {
     "node": "^6.4.0"
