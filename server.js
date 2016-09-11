@@ -17,7 +17,6 @@ var Channel = {
   'SLACK': '0'
 };
 
-
 var senderHandleBySlackChannelIds = {}; // mapping of Slack channel to iMessage buddy
 var slackChannelIdsByName = {}; // if we have a record of the channel here, we assume we've joined
 var channelTransports = {};
