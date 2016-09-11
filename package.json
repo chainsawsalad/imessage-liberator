@@ -4,9 +4,9 @@
   "description": "Send and receive Apple iMessages via a RESTful API",
   "license": "MIT",
   "scripts": {
-    "start": "./start.sh",
-    "install": "./install.sh",
-    "imessager": "pushd host && python -m CGIHTTPServer 8000 && popd"
+    "servers": "./start_servers.sh",
+    "start": "./node_start.sh",
+    "install": "./install.sh"
   },
   "engines": {
     "node": "^6.4.0"

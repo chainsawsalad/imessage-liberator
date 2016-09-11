@@ -93,6 +93,12 @@ module.exports.getIpAddress = function () {
   return '127.0.0.1';
 };
 
+module.exports.getHostAddress = function () {
+  var address = process.env.DOCKER_HOST || '10.200.10.1';
+  var port = process.env.IMESSAGE_LIBERATOR_PORT || '8999';
+  return 'http://' + address + ':' + port + '/cgi-bin/liberator.py';
+};
+
 module.exports.getSlackOauthToken = function () {
   if (!process.env.SLACK_OAUTH_TOKEN) {
     throw new Error('Missing Slack OAuth token');

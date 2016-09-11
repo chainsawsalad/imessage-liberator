@@ -1,5 +1,7 @@
 var path = require('path');
 var restify = require('restify');
+var httpRequest = require('request');
+
 var SlackClient = require('@slack/client');
 var SlackRtmClient = SlackClient.RtmClient;
 var SlackWebClient = require('@slack/client').WebClient;
@@ -9,6 +11,7 @@ var logger = require(path.join(__dirname, '/include/logger.js'));
 var environment = require(path.join(__dirname, '/include/environment.js'));
 var slackOauthToken = environment.getSlackOauthToken();
 var insecurePort = environment.getInsecurePort();
+var hostAddress = environment.getHostAddress();
 
 var Channel = {
   'SLACK': '0'
@@ -185,8 +188,18 @@ function messageToMe(request, response, next) {
 }
 
 function messageFromMe(message) {
-  logger.info('Message from me sent', message);
-
+  httpRequest({
+    url: hostAddress,
+    method: 'POST',
+    json: true,
+    form: message
+  }, function (error, response, body) {
+    if (error || response.statusCode >= 400 || !body.ok) {
+      logger.error('Message from me failed to send: %s', error || body, message);
+    } else {
+      logger.info('Message from me sent', message, body);
+    }
+  });
 }
 
 function startRestServer() {
