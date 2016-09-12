@@ -25,9 +25,9 @@ For this tool to be practical, you will need an always-on installation of Mac OS
    imessage-liberator$ ./install.sh
    ```
 
-1. Set the AppleScript handler for `Messages.app` to the newly installed `Liberator.applescript`.
-   1. Launch `Messages.app` and open `Preferences > General`.
-   1. At the `AppleScript handler` menu, select `Liberator.applescript`.
+1. Set the AppleScript handler for `Messages.app` to the newly installed `Liberator.applescript`
+   1. Launch `Messages.app` and open `Preferences > General`
+   1. At the `AppleScript handler` menu, select `Liberator.applescript`
 
 1. Create a new [Slack](https://slack.com/) team
 
@@ -35,13 +35,13 @@ For this tool to be practical, you will need an always-on installation of Mac OS
 
    Slack will be the replacement client for iMessage on any platform you'd care to use. You need a dedicated Slack team for this, one that **NO ONE** else has access to. This Slack team should be treated as preciously as your login to iCloud. By the end of this installation, when a buddy iMessages you, you will receive it in a Slack channel dedicated to that buddy. When you respond in the buddy's Slack channel, it will be forwarded along to them via iMessage.
 
-1. Generate a Slack authentication token for your newly created team.
+1. Generate a Slack authentication token for your newly created team
    1. Navigate to https://api.slack.com/docs/oauth-test-tokens
    1. Locate the line item for your newly created team on the Test Token Generator table and click the create token button.
 
       Your authentication token will generate. This is what iMessage Liberator uses to make API calls to Slack on your behalf.
 
-      This token will enable all admin actions on your team via the Slack API, so it is extremely important it is kept **PRIVATE**. Should this key ever be compromised, immediately navigate back to this page and click the re-issue token button.
+      This token will enable all admin actions on your team via the Slack API, so it is extremely important it is kept **PRIVATE**. Should this key ever be compromised, immediately return to the page and click the re-issue token button.
 
 1. Copy your Slack authentication token and enter the following command into your terminal:
    ```
@@ -68,15 +68,15 @@ You are now up and running.
 ## Debugging
 If something is going wrong with your installation, it can be difficult to debug due to the number of moving parts.
 
-### Check Console.app
-The iMessage AppleScript handler logs messages to `~/Library/logs/iMessageLiberator.log`. Open `Console.app` and view that file to see if anything is going wrong. If the log file is missing, it means the `Messages.app` iMessage AppleScript handler was not selected properly.
+### Check Messages.app AppleScript Handler Logging in Console.app
+The AppleScript handler set in Messages.app logs messages to `~/Library/logs/iMessageLiberator.log`. Open `Console.app` and view that file to see if anything is going wrong. If the log file is missing, it means the `Messages.app` iMessage AppleScript handler was not selected properly.
 
 ### Verify sending iMessages via HTTP works
-When the Docker container receives a Slack message from you, it looks up who it should be sent to and then notifies the host server, which sends the iMessage via AppleScript. You can test that the host-side of this chain is working by entering into your browser:
+When the Docker container receives a Slack message sent by you, it looks up which buddy it should be forwarded to and then notifies the host server, which sends the iMessage via AppleScript. You can test that the host-side of this chain is working by entering into your browser:
 ```
 http://10.200.10.1:8999/cgi-bin/liberator.py?body=success&senderHandle=<IMESSAGE_BUDDY_HANDLE>
 ```
-Replace `<IMESSAGE_BUDDY_HANDLE>` with a buddy iMessage handle, probably best to use your own, e.g. `you@your.imessage.email.com`.
+Replace `<IMESSAGE_BUDDY_HANDLE>` with a buddy iMessage handle, probably best to use your own, e.g. `you@your.apple.id.com`.
 
 If you changed the IP address or port from the defaults, replace them in the example above as well.
 
