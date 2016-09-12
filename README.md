@@ -13,13 +13,13 @@ This project was inspired by the solution for iMessage on Android offered by [Pi
 For this tool to be practical, you will need an always-on installation of Mac OS X 10.11+. Future versions will include support and instructions for use with a Mac OS X virtual machine, but for this guide it will be assumed the installation is on certified Apple hardware.
 
 1. When your operating system is set up, launch `Messages.app` and log into iMessage via your Apple ID.
-1. Ensure iCloud Contacts are synced with the OS.
+1. Ensure iCloud Contacts are synced with the OS
 
    Because iMessage accesses your iCloud Contacts when populating your buddy list, we can't get away with only signing into iMessage via `Messages.app` with your Apple ID. Ensure that your iCloud account is signed in (`System Preferences > iCloud`) and that `Contacts` is being synced. No other iCloud features need to be enabled, and if this is being run on a dedicated server, it is recommended to disable them.
 
 1. Install [Docker for Mac](https://docs.docker.com/docker-for-mac/)
-1. Clone this repository onto your machine.
-1. Open `Terminal.app` and run the installation script.
+1. Clone this repository onto your machine
+1. Open `Terminal.app` and run the installation script
 
    ```
    imessage-liberator$ ./install.sh
