@@ -3,219 +3,164 @@
 var path = require('path');
 var logger = require('winston').loggers.get('logger');
 var databaseConnect = require(path.join(__dirname, '/database.js'));
+var Contact = require(path.join(__dirname, '/Contact.js'));
 
-var contactColumnMapping = 'contact.id AS uid, contact.full_name AS "name", contact.handle';
+var contactColumnMapping = 'contact.imessage_id AS "id", contact.full_name AS "name", contact_handle.handle';
+
+function saveContact(contact, client) {
+  var context = {
+    client: client
+  };
+  return new Promise(function (resolve, reject) {
+    if (typeof client === 'undefined') {
+      return databaseConnect()
+      .catch(reject)
+      .then(function (databaseCallbacks) {
+        context.client = databaseCallbacks.client;
+        context.done = databaseCallbacks.done;
+      })
+      .then(resolve);
+    }
+    return resolve();
+  })
+  .then(function () {
+    return getContact(contact, context.client);
+  })
+  .then(function (contact) {
+    if (contact === null) {
+      return createContact(contact, context.client);
+    }
+    logger.debug('Contact already exists', contact);
+    return Promise.resolve();
+  })
+  .catch(function (error) {
+    logger.error('Failure to save contact', error);
+  })
+  .then(function () {
+    if (typeof context.done === 'function') {
+      context.done();
+      context = null;
+    }
+  });
+}
+module.exports.saveContact = saveContact;
 
 /**
  * Create a new contact
- * @param {String} name - The name of the contact
- * @param {String} handle - The contact's handle
- * @param {Function} callback - The callback function run on completion
+ * @param {Contact} contact - The contact to create
+ * @return {Promise} callback - The callback function run on completion
  */
-module.exports.createContact = function createContact(name, handle) {
+function createContact(contact) {
   var context = {};
-  return databaseConnect()
-    .then(function (databaseCallbacks) {
-      context.client = databaseCallbacks.client;
-      context.done = databaseCallbacks.done;
-    })
-    .then(new Promise(function (resolve, reject) {
-      var query = 'INSERT INTO contact (full_name, handle) VALUES ($1, $2) RETURNING ' + contactColumnMapping;
-      var queryParameters = [
-        name,
-        handle
-      ];
-      context.client.query(query, queryParameters, function (error, result) {
-        if (!error) {
-          context.result = result.rows;
-          if (context.result.length > 0) {
-            return resolve(context.result[0]);
-          }
-          error = new Error('Expected return rows empty');
+  var newContact = new Contact();
+  return new Promise(function (resolve, reject) {
+    if (typeof client === 'undefined') {
+      return databaseConnect()
+      .catch(reject)
+      .then(function (databaseCallbacks) {
+        context.client = databaseCallbacks.client;
+        context.done = databaseCallbacks.done;
+      })
+      .then(resolve);
+    }
+    return resolve();
+  })
+  .then(new Promise(function (resolve, reject) {
+    var query = 'INSERT INTO contact (imessage_id, full_name) VALUES ($1, $2) RETURNING imessage_id AS "id", full_name AS "name"';
+    var queryParameters = [
+      contact.getId(),
+      contact.getName()
+    ];
+    context.client.query(query, queryParameters, function (error, result) {
+      if (!error) {
+        context.result = result.rows;
+        if (context.result.length > 0) {
+          newContact.setId(context.result[0].id);
+          newContact.setName(context.result[0].name);
+          return resolve();
         }
-        return reject(error);
-      });
-    }))
-    .catch(function (error) {
-      logger.error('Failure to create media', error);
-    })
-    .then(function () {
-      context.done();
-      context = null;
+        error = new Error('Expected return rows empty');
+      }
+      return reject(error);
     });
-};
-
-module.exports.getMediaById = function getMediaById(mediaId, callback, client) {
-  var context = {};
-
-  async.series([
-    function getMediaConnect(next) {
-      if (client) {
-        context.client = client;
-        next();
-        return;
-      }
-
-      databaseConnect(function (error, client, done) {
-        context.client = client;
-        context.done = done;
-        next(error);
-      });
-    },
-    function getMediaQuery(next) {
-      var query = 'SELECT ' + mediaColumnMapping + ' FROM media WHERE id = $1';
-
-      context.client.query(query, [mediaId], function (error, result) {
-        if (!error) {
-          context.result = result.rows[0];
+  }))
+  .then(new Promise(function (resolve, reject) {
+    var query = 'INSERT INTO contact_handle (contact_imessage_id, handle) VALUES ($1, $2) RETURNING contact_imessage_id AS "id", handle AS "handle"';
+    var queryParameters = [
+      contact.getId(),
+      contact.getHandle()
+    ];
+    context.client.query(query, queryParameters, function (error, result) {
+      if (!error) {
+        context.result = result.rows;
+        if (context.result.length > 0) {
+          newContact.setHandle(context.result[0].handle);
+          if (newContact.getId() !== context.result[0].id) {
+            logger.error('Contact table imessage_id mismatch: "%s" != "%s"', newContact.getId(), context.result[0].id);
+            return reject(new Error('ID mismatch on create Contact'));
+          }
+          return resolve();
         }
-        next(error);
-      });
-    }
-  ], function (error, result) {
-    var media = null;
-
-    if (error) {
-      logger.error('Failure fetching media by id', error);
-    } else if (context.result) {
-      media = new Media(context.result);
-    }
-
-    if (typeof context.done === 'function') {
-      context.done();
-    }
-
-    context = null;
-    callback(error, media);
-  });
-};
-
-module.exports.deleteMediaById = function deleteMediaById(mediaId, callback, client) {
-  var context = {};
-
-  async.series([
-    function getMediaConnect(next) {
-      if (client) {
-        context.client = client;
-        next();
-        return;
+        error = new Error('Expected return rows empty');
       }
-
-      databaseConnect(function (error, client, done) {
-        context.client = client;
-        context.done = done;
-        next(error);
-      });
-    },
-    function getMediaQuery(next) {
-      var query = 'DELETE FROM media WHERE id = $1';
-
-      context.client.query(query, [mediaId], function (error, result) {
-        next(error);
-      });
-    }
-  ], function (error, result) {
-    if (error) {
-      logger.error('Failure deleting media by id', error);
-    }
-
-    if (typeof context.done === 'function') {
-      context.done();
-    }
-
+      return reject(error);
+    });
+  }))
+  .catch(function (error) {
+    logger.error('Failure to create media', error);
+  })
+  .then(function () {
+    context.done();
     context = null;
-    callback(error);
-  });
-};
+  })
+  .then(Promise.resolve(newContact));
+}
+module.exports.createContact = createContact;
 
-module.exports.getAllMediaByBrandId = function getAllMediaByBrandId(brandId, callback, client) {
+/**
+ * Get a contact
+ * @param {Contact} contact - The contact's handle
+ * @return {Promise} callback - The callback function run on completion
+ */
+function getContact(contact) {
   var context = {};
-
-  async.series([
-    function getMediaConnect(next) {
-      if (client) {
-        context.client = client;
-        next();
-        return;
-      }
-
-      databaseConnect(function (error, client, done) {
-        context.client = client;
-        context.done = done;
-        next(error);
-      });
-    },
-    function getMediaQuery(next) {
-      var query = 'SELECT ' + mediaColumnMapping + ' FROM media WHERE brand_id = $1 ORDER BY name';
-
-      context.client.query(query, [brandId], function (error, result) {
-        if (!error) {
-          context.result = result.rows;
+  return new Promise(function (resolve, reject) {
+    if (typeof client === 'undefined') {
+      return databaseConnect()
+      .catch(reject)
+      .then(function (databaseCallbacks) {
+        context.client = databaseCallbacks.client;
+        context.done = databaseCallbacks.done;
+      })
+      .then(resolve);
+    }
+    return resolve();
+  })
+  .then(new Promise(function (resolve, reject) {
+    var query = 'SELECT ' + contactColumnMapping + ' FROM contact ' +
+      'JOIN contact_handle ON contact.imessage_id = contact_handle.contact_imessage_id ' +
+    'WHERE contact.imessage_id = $1 AND contact_handle.handle = $2';
+    var queryParameters = [
+      contact.getId(),
+      contact.handle()
+    ];
+    context.client.query(query, queryParameters, function (error, result) {
+      if (!error) {
+        context.result = result.rows;
+        if (context.result.length > 0) {
+          return resolve(context.result[0]);
         }
-        next(error);
-      });
-    }
-  ], function (error, result) {
-    var mediaFiles = [];
-
-    if (error) {
-      logger.error('Failure fetching media by brand id', error);
-    } else {
-      context.result.forEach(function (media) {
-        mediaFiles.push(new Media(media));
-      });
-    }
-
-    if (typeof context.done === 'function') {
-      context.done();
-    }
-    context = null;
-    callback(error, mediaFiles);
-  });
-};
-
-module.exports.getAllMediaByBrandKey = function getAllMediaByBrandKey(brandKey, callback, client) {
-  var context = {};
-
-  async.series([
-    function getMediaConnect(next) {
-      if (client) {
-        context.client = client;
-        next();
-        return;
+        error = new Error('Expected return rows empty');
       }
-
-      databaseConnect(function (error, client, done) {
-        context.client = client;
-        context.done = done;
-        next(error);
-      });
-    },
-    function getMediaQuery(next) {
-      var query = 'SELECT ' + mediaColumnMapping + ' FROM media WHERE brand_id = $1 ORDER BY name';
-
-      context.client.query(query, [brandKey], function (error, result) {
-        if (!error) {
-          context.result = result.rows;
-        }
-        next(error);
-      });
-    }
-  ], function (error, result) {
-    var mediaFiles = [];
-
-    if (error) {
-      logger.error('Failure fetching media by brand id', error);
-    } else {
-      context.result.forEach(function (media) {
-        mediaFiles.push(new Media(media));
-      });
-    }
-
-    if (typeof context.done === 'function') {
-      context.done();
-    }
+      return reject(error);
+    });
+  }))
+  .catch(function (error) {
+    logger.error('Failure to get contact', error);
+  })
+  .then(function () {
+    context.done();
     context = null;
-    callback(error, mediaFiles);
   });
-};
+}
+module.exports.getContact = getContact;

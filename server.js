@@ -9,6 +9,8 @@ var SLACK_RTM_CLIENT_EVENTS = SlackClient.CLIENT_EVENTS.RTM;
 var SLACK_RTM_EVENTS = SlackClient.RTM_EVENTS;
 var logger = require(path.join(__dirname, '/include/logger.js'));
 var environment = require(path.join(__dirname, '/include/environment.js'));
+var Contact = require(path.join(__dirname, '/include/Contact.js'));
+var contactMappingManager = require(path.join(__dirname, '/include/contactMappingManager.js'));
 var slackOauthToken = environment.getSlackOauthToken();
 var insecurePort = environment.getInsecurePort();
 var hostAddress = environment.getHostAddress();
@@ -218,9 +220,11 @@ function messageFromMe(message) {
   });
 }
 
-function receiveContacts(payload) {
+function parseContacts(payload) {
   return new Promise(function (resolve, reject) {
     var contacts = null;
+    var contactOperations = [];
+
     try {
       contacts = JSON.parse(payload.body);
     } catch (error) {
@@ -234,10 +238,12 @@ function receiveContacts(payload) {
 
     contacts.buddies.forEach(function (buddy) {
       logger.info('Buddy loading from contacts', buddy);
+      contactOperations.push(contactMappingManager.saveContact(new Contact(buddy)));
     });
 
-    logger.info('Contacts fetched from host');
-    resolve();
+    Promise.all(contactOperations)
+    .then(resolve)
+    .catch(reject);
   });
 }
 
@@ -252,7 +258,8 @@ function fetchContacts() {
         logger.error('Failure to fetch contacts from host', error || body);
         reject(error || body);
       } else {
-        receiveContacts(body)
+        logger.info('Contacts fetched from host');
+        parseContacts(body)
         .then(resolve)
         .catch(reject);
       }
