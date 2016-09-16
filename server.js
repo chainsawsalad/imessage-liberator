@@ -222,20 +222,21 @@ function receiveContacts(payload) {
   return new Promise(function (resolve, reject) {
     var contacts = null;
     try {
-      contacts = JSON.parse(payload);
+      contacts = JSON.parse(payload.body);
     } catch (error) {
-      logger.error('Contacts JSON payload is malformed: %s', contacts, error);
+      logger.error('Contacts JSON payload is malformed', payload, error);
       return reject(new Error('Malformed JSON payload'));
     }
 
-    if ((contacts.errors || []).length > 0) {
-      logger.warn('Host encountered errors while parsing contacts', contacts.errors);
-    }
+    (contacts.errors || []).forEach(function (error) {
+      logger.warn('Host encountered error while parsing contacts:', error);
+    });
 
     contacts.buddies.forEach(function (buddy) {
       logger.info('Buddy loading from contacts', buddy);
     });
 
+    logger.info('Contacts fetched from host');
     resolve();
   });
 }
@@ -281,18 +282,18 @@ function listenToRestEndpoints(server) {
   });
 }
 
-slackLoadChannels()
+fetchContacts()
+.catch(function (error) {
+  logger.warn('Starting servers without initial contacts fetch', error);
+})
+.then(slackLoadChannels())
 .then(function (channels) {
   // need channels to load before listening begins
   slackChannelIdsByName = channels;
 }, function (error) {
   logger.error('Fatal error fetching Slack channels', error);
 })
-.then(fetchContacts())
-.catch(function (error) {
-  logger.warn('Starting servers without initial contacts fetch', error);
-})
-.then(
+.then(function () {
   Promise.all([
     slackConnectRtmClient(),
     startRestServer(),
@@ -302,7 +303,9 @@ slackLoadChannels()
     listenToRestEndpoints(values[1]);
     logger.info('Startup completed successfully');
   }, function (error) {
-    logger.error('Fatal error starting server', error);
-  })
-);
-
+    logger.error('Fatal error connecting server', error);
+  });
+})
+.catch(function (error) {
+  logger.error('Fatal error starting server', error);
+});
