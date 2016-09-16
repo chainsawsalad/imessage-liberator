@@ -12,23 +12,6 @@ tell application "Messages"
       if (serviceType as string) is equal to "iMessage" then
         set buddyRecord to {|handle|: (handle of theBuddy), |name|: (name of theBuddy), |id|: (id of theBuddy)}
         copy buddyRecord to the end of imessageBuddies
-
-        #set test to item 1 of imessageBuddies
-        #log test
-        #set test to handle of test
-        #log test
-        #set buddyArray to item 1 of buddyArray
-        #log buddyArray
-        #set buddyArray to handle of buddyArray
-        #log buddyArray
-
-        #set buddyId to id of theBuddy
-        #set buddyName to name of theBuddy
-        #set buddyHandle to handle of theBuddy
-        #set imessageBuddy to my createDictWith({ {"id", buddyId}, {"name", buddyName}, {"handle", buddyHandle} })
-        #set imessageBuddyList to imessageBuddyList & imessageBuddy
-        #log my encode(imessageBuddy)
-
       end if
 
     on error errorMessage
@@ -37,8 +20,6 @@ tell application "Messages"
     end try
   end repeat
 end tell
-
-log imessageBuddies
 
 tell application "Contacts"
   if not running then run
