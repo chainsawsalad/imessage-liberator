@@ -4,30 +4,31 @@ CREATE DATABASE liberator OWNER liberator;
 \connect liberator
 
 CREATE TABLE contact (
-  id SERIAL PRIMARY KEY,
+  imessage_id VARCHAR PRIMARY KEY,
   full_name VARCHAR DEFAULT NULL,
-  handle VARCHAR DEFAULT NULL
 );
 ALTER TABLE contact OWNER TO liberator;
 
-CREATE TABLE message_group (
+CREATE TABLE contact_handle (
+  contact_imessage_id VARCHAR NOT NULL REFERENCES contact (imessage_id),
+  handle VARCHAR DEFAULT NULL
+);
+ALTER TABLE contact_handle OWNER TO liberator;
+
+CREATE TABLE message_channel (
   id SERIAL PRIMARY KEY,
   name VARCHAR DEFAULT NULL
 );
-ALTER TABLE message_group OWNER TO liberator;
+ALTER TABLE message_channel OWNER TO liberator;
+INSERT INTO message_channel (name) VALUES (
+  'slack'
+);
 
-CREATE TABLE group_member (
+CREATE TABLE contact_mapping (
   id SERIAL PRIMARY KEY,
+  message_channel_id INT NOT NULL REFERENCES message_channel (id),
   contact_id INT NOT NULL REFERENCES contact (id),
-  group_id INT NOT NULL REFERENCES message_group (id)
+  channel_key VARCHAR DEFAULT NULL,
+  channel_name VARCHAR DEFAULT NULL
 );
-ALTER TABLE group_member OWNER TO liberator;
-
-CREATE TABLE message (
-  id SERIAL PRIMARY KEY,
-  group_member_id INT NOT NULL REFERENCES group_member (id),
-  body VARCHAR DEFAULT NULL,
-  attachment VARCHAR DEFAULT NULL,
-  message_received TIMESTAMP DEFAULT NULL
-);
-ALTER TABLE message OWNER TO liberator;
+ALTER TABLE contact_mapping OWNER TO liberator;
