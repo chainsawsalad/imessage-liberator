@@ -205,7 +205,7 @@ function messageToMe(request, response, next) {
 
 function messageFromMe(message) {
   httpRequest({
-    url: hostAddress,
+    url: hostAddress + 'liberator.py',
     method: 'POST',
     json: true,
     form: message
@@ -215,6 +215,47 @@ function messageFromMe(message) {
     } else {
       logger.info('Message from me sent', message, body);
     }
+  });
+}
+
+function receiveContacts(payload) {
+  return new Promise(function (resolve, reject) {
+    var contacts = null;
+    try {
+      contacts = JSON.parse(payload);
+    } catch (error) {
+      logger.error('Contacts JSON payload is malformed: %s', contacts, error);
+      return reject(new Error('Malformed JSON payload'));
+    }
+
+    if ((contacts.errors || []).length > 0) {
+      logger.warn('Host encountered errors while parsing contacts', contacts.errors);
+    }
+
+    contacts.buddies.forEach(function (buddy) {
+      logger.info('Buddy loading from contacts', buddy);
+    });
+
+    resolve();
+  });
+}
+
+function fetchContacts() {
+  return new Promise(function (resolve, reject) {
+    httpRequest({
+      url: hostAddress + 'contacts.py',
+      method: 'GET',
+      json: true
+    }, function (error, response, body) {
+      if (error || response.statusCode >= 400 || !(body || {}).ok) {
+        logger.error('Failure to fetch contacts from host', error || body);
+        reject(error || body);
+      } else {
+        receiveContacts(body)
+        .then(resolve)
+        .catch(reject);
+      }
+    });
   });
 }
 
@@ -240,18 +281,28 @@ function listenToRestEndpoints(server) {
   });
 }
 
-Promise.all([
-  slackLoadChannels(),
-  slackConnectRtmClient(),
-  startRestServer()
-]).then(function (values) {
+slackLoadChannels()
+.then(function (channels) {
   // need channels to load before listening begins
-  slackChannelIdsByName = values[0];
-  listenToSlackRtmEndpoints(values[1]);
-  listenToRestEndpoints(values[2]);
-
-  logger.info('Startup completed successfully');
+  slackChannelIdsByName = channels;
 }, function (error) {
-  logger.error('Fatal error starting server', error);
-});
+  logger.error('Fatal error fetching Slack channels', error);
+})
+.then(fetchContacts())
+.catch(function (error) {
+  logger.warn('Starting servers without initial contacts fetch', error);
+})
+.then(
+  Promise.all([
+    slackConnectRtmClient(),
+    startRestServer(),
+  ])
+  .then(function (values) {
+    listenToSlackRtmEndpoints(values[0]);
+    listenToRestEndpoints(values[1]);
+    logger.info('Startup completed successfully');
+  }, function (error) {
+    logger.error('Fatal error starting server', error);
+  })
+);
 
