@@ -9,8 +9,11 @@ var SLACK_RTM_CLIENT_EVENTS = SlackClient.CLIENT_EVENTS.RTM;
 var SLACK_RTM_EVENTS = SlackClient.RTM_EVENTS;
 var logger = require(path.join(__dirname, '/include/logger.js'));
 var environment = require(path.join(__dirname, '/include/environment.js'));
+var databaseConnect = require(path.join(__dirname, '/include/database.js'));
+
 var Contact = require(path.join(__dirname, '/include/Contact.js'));
 var contactMappingManager = require(path.join(__dirname, '/include/contactMappingManager.js'));
+
 var slackOauthToken = environment.getSlackOauthToken();
 var insecurePort = environment.getInsecurePort();
 var hostAddress = environment.getHostAddress();
@@ -236,13 +239,20 @@ function parseContacts(payload) {
       logger.warn('Host encountered error while parsing contacts:', error);
     });
 
-    contacts.buddies.forEach(function (buddy) {
-      logger.info('Buddy loading from contacts', buddy);
-      contactOperations.push(contactMappingManager.saveContact(new Contact(buddy)));
-    });
+    return databaseConnect()
+    .then(function (databaseCallbacks) {
+      var client = databaseCallbacks.client;
+      var done = databaseCallbacks.done;
 
-    Promise.all(contactOperations)
-    .then(resolve)
+      contacts.buddies.forEach(function (buddy) {
+        logger.info('Buddy loading from contacts', buddy);
+        contactOperations.push(contactMappingManager.saveContact(new Contact(buddy), client));
+      });
+
+      return Promise.all(contactOperations)
+      .then(resolve, reject)
+      .done(done);
+    })
     .catch(reject);
   });
 }

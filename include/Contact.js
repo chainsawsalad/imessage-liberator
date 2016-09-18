@@ -1,14 +1,14 @@
 'use strict';
 
 function Contact(settings) {
-  this.id(settings.id);
-  this.name(settings.name);
-  this.handle(settings.handle);
+  this.setId(settings.id);
+  this.setName(settings.name);
+  this.setHandle(settings.handle);
 }
 
 module.exports = Contact;
 
-Contact.prototype.setUid = function (id) {
+Contact.prototype.setId = function (id) {
   this._id = id;
 };
 
