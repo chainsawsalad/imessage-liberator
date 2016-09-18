@@ -293,15 +293,12 @@ fetchContacts()
 .catch(function (error) {
   logger.warn('Starting servers without initial contacts fetch', error);
 })
-.then(slackLoadChannels())
+.then(slackLoadChannels)
 .then(function (channels) {
   // need channels to load before listening begins
   slackChannelIdsByName = channels;
-}, function (error) {
-  logger.error('Fatal error fetching Slack channels', error);
-})
-.then(function () {
-  Promise.all([
+
+  return Promise.all([
     slackConnectRtmClient(),
     startRestServer(),
   ])
@@ -309,10 +306,14 @@ fetchContacts()
     listenToSlackRtmEndpoints(values[0]);
     listenToRestEndpoints(values[1]);
     logger.info('Startup completed successfully');
-  }, function (error) {
-    logger.error('Fatal error connecting server', error);
+    return Promise.resolve();
+  })
+  .catch(function (error) {
+    logger.error('Fatal error starting server', error);
+    return Promise.reject();
   });
 })
 .catch(function (error) {
-  logger.error('Fatal error starting server', error);
+  logger.error('Fatal error fetching Slack channels', error);
+  return Promise.reject(error);
 });
