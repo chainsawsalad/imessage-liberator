@@ -4,13 +4,15 @@ CREATE DATABASE liberator OWNER liberator;
 \connect liberator
 
 CREATE TABLE contact (
-  imessage_id VARCHAR PRIMARY KEY,
-  full_name VARCHAR DEFAULT NULL,
+  id SERIAL PRIMARY KEY,
+  imessage_id VARCHAR NOT NULL UNIQUE,
+  full_name VARCHAR DEFAULT NULL
 );
 ALTER TABLE contact OWNER TO liberator;
+CREATE INDEX ON contact (imessage_id);
 
 CREATE TABLE contact_handle (
-  contact_imessage_id VARCHAR NOT NULL REFERENCES contact (imessage_id),
+  contact_id INT NOT NULL REFERENCES contact (id),
   handle VARCHAR DEFAULT NULL
 );
 ALTER TABLE contact_handle OWNER TO liberator;
