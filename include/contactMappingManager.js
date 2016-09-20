@@ -26,21 +26,25 @@ function saveContact(contact, client) {
   .then(function () {
     return getContact(contact, context.client);
   })
-  .then(function (contact) {
-    if (contact === null) {
+  .then(function (result) {
+    if (result instanceof Error) {
+      return Promise.reject(result);
+    } else if (result === null) {
       return createContact(contact, context.client);
     }
     logger.debug('Contact already exists', contact);
-    return Promise.resolve();
+    return result;
   })
-  .catch(function (error) {
-    logger.error('Failure to save contact', error);
+  .catch(function (reason) {
+    logger.error('Failure to save contact', reason);
+    return reason;
   })
-  .then(function () {
+  .then(function (result) {
     if (typeof context.done === 'function') {
       context.done();
-      context = null;
     }
+    context = null;
+    logger.info('Save contact ended with result', result);
   });
 }
 module.exports.saveContact = saveContact;
@@ -48,13 +52,15 @@ module.exports.saveContact = saveContact;
 /**
  * Create a new contact
  * @param {Contact} contact - The contact to create
+ * @param {Client} client - The database client object
  * @return {Promise} callback - The callback function run on completion
  */
-function createContact(contact) {
-  var context = {};
-  var newContact = new Contact();
+function createContact(contact, client) {
+  var context = {
+    client: client
+  };
   return new Promise(function (resolve, reject) {
-    if (typeof client === 'undefined') {
+    if (typeof context.client === 'undefined') {
       return databaseConnect()
       .catch(reject)
       .then(function (databaseCallbacks) {
@@ -65,67 +71,75 @@ function createContact(contact) {
     }
     return resolve();
   })
-  .then(new Promise(function (resolve, reject) {
-    var query = 'INSERT INTO contact (imessage_id, full_name) VALUES ($1, $2) RETURNING imessage_id AS "id", full_name AS "name"';
-    var queryParameters = [
-      contact.getId(),
-      contact.getName()
-    ];
-    context.client.query(query, queryParameters, function (error, result) {
-      if (!error) {
-        context.result = result.rows;
-        if (context.result.length > 0) {
-          newContact.setId(context.result[0].id);
-          newContact.setName(context.result[0].name);
-          return resolve();
-        }
-        error = new Error('Expected return rows empty');
-      }
-      return reject(error);
-    });
-  }))
-  .then(new Promise(function (resolve, reject) {
-    var query = 'INSERT INTO contact_handle (contact_imessage_id, handle) VALUES ($1, $2) RETURNING contact_imessage_id AS "id", handle AS "handle"';
-    var queryParameters = [
-      contact.getId(),
-      contact.getHandle()
-    ];
-    context.client.query(query, queryParameters, function (error, result) {
-      if (!error) {
-        context.result = result.rows;
-        if (context.result.length > 0) {
-          newContact.setHandle(context.result[0].handle);
-          if (newContact.getId() !== context.result[0].id) {
-            logger.error('Contact table imessage_id mismatch: "%s" != "%s"', newContact.getId(), context.result[0].id);
-            return reject(new Error('ID mismatch on create Contact'));
-          }
-          return resolve();
-        }
-        error = new Error('Expected return rows empty');
-      }
-      return reject(error);
-    });
-  }))
-  .catch(function (error) {
-    logger.error('Failure to create media', error);
-  })
   .then(function () {
-    context.done();
-    context = null;
+    return new Promise(function (resolve, reject) {
+      var query = 'INSERT INTO contact (imessage_id, full_name) VALUES ($1, $2) RETURNING id, imessage_id AS "imessageId", full_name AS "name"';
+      var queryParameters = [
+        contact.getImessageId(),
+        contact.getName()
+      ];
+      context.client.query(query, queryParameters, function (error, result) {
+        if (!error) {
+          context.result = result.rows;
+          if (context.result.length > 0) {
+            return resolve(new Contact(context.result[0]));
+          }
+          error = new Error('Expected return rows empty');
+        }
+        return reject(error);
+      });
+    });
   })
-  .then(Promise.resolve(newContact));
+  .then(function (newContact) {
+    return new Promise(function (resolve, reject) {
+      var query = 'INSERT INTO contact_handle (contact_id, handle) VALUES ($1, $2) RETURNING contact_id AS "id", handle AS "handle"';
+      var queryParameters = [
+        contact.getId(),
+        contact.getHandle()
+      ];
+      context.client.query(query, queryParameters, function (error, result) {
+        if (!error) {
+          context.result = result.rows;
+          if (context.result.length > 0) {
+            newContact.setHandle(context.result[0].handle);
+            if (newContact.getId() !== context.result[0].id) {
+              logger.error('Contact table imessage_id mismatch: "%s" != "%s"', newContact.getId(), context.result[0].id);
+              return reject(new Error('ID mismatch on create Contact'));
+            }
+            return resolve(newContact);
+          }
+          error = new Error('Expected return rows empty');
+        }
+        return reject(error);
+      });
+    });
+  })
+  .catch(function (reason) {
+    logger.error('Failure to create contact', reason);
+    return reason;
+  })
+  .then(function (result) {
+    if (typeof context.done === 'function') {
+      context.done();
+    }
+    context = null;
+    return result;
+  });
 }
 module.exports.createContact = createContact;
 
 /**
  * Get a contact
  * @param {Contact} contact - The contact's handle
+ * @param {Client} client - The database client object
  * @return {Promise} callback - The callback function run on completion
  */
-function getContact(contact) {
-  var context = {};
+function getContact(contact, client) {
+  var context = {
+    client: client
+  };
   return new Promise(function (resolve, reject) {
-    if (typeof client === 'undefined') {
+    if (typeof context.client === 'undefined') {
       return databaseConnect()
       .catch(reject)
       .then(function (databaseCallbacks) {
@@ -136,31 +150,37 @@ function getContact(contact) {
     }
     return resolve();
   })
-  .then(new Promise(function (resolve, reject) {
-    var query = 'SELECT ' + contactColumnMapping + ' FROM contact ' +
-      'JOIN contact_handle ON contact.imessage_id = contact_handle.contact_imessage_id ' +
-    'WHERE contact.imessage_id = $1 AND contact_handle.handle = $2';
-    var queryParameters = [
-      contact.getId(),
-      contact.handle()
-    ];
-    context.client.query(query, queryParameters, function (error, result) {
-      if (!error) {
-        context.result = result.rows;
-        if (context.result.length > 0) {
-          return resolve(context.result[0]);
-        }
-        error = new Error('Expected return rows empty');
-      }
-      return reject(error);
-    });
-  }))
-  .catch(function (error) {
-    logger.error('Failure to get contact', error);
-  })
   .then(function () {
-    context.done();
+    return new Promise(function (resolve, reject) {
+      var query = 'SELECT ' + contactColumnMapping + ' FROM contact ' +
+        'JOIN contact_handle ON contact.id = contact_handle.contact_id ' +
+      'WHERE contact.imessage_id = $1 AND contact_handle.handle = $2';
+      var queryParameters = [
+        contact.getImessageId(),
+        contact.getHandle()
+      ];
+      context.client.query(query, queryParameters, function (error, result) {
+        if (!error) {
+          context.result = result.rows;
+          if (context.result.length > 0) {
+            return resolve(new Contact(context.result[0]));
+          }
+          return resolve(null);
+        }
+        return reject(error);
+      });
+    });
+  })
+  .catch(function (reason) {
+    logger.error('Failure to get contact', reason);
+    return reason;
+  })
+  .then(function (result) {
+    if (typeof context.done === 'function') {
+      context.done();
+    }
     context = null;
+    return result;
   });
 }
 module.exports.getContact = getContact;

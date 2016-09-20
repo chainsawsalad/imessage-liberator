@@ -169,8 +169,8 @@ function sendMessage(message) {
       logger.debug('Processing Slack queue message');
       sendMessage(channelUserMessageQueue[message.senderName][0]);
     }
-  }).catch(function (error) {
-    logger.error('Failure in sending Slack message', error);
+  }).catch(function (reason) {
+    logger.error('Failure in sending Slack message', reason);
   });
 }
 
@@ -244,14 +244,16 @@ function parseContacts(payload) {
       var client = databaseCallbacks.client;
       var done = databaseCallbacks.done;
 
-      contacts.buddies.forEach(function (buddy) {
+      contactOperations.push(contactMappingManager.saveContact(new Contact(contacts.buddies[2]), client));
+
+      /*contacts.buddies.forEach(function (buddy) {
         logger.info('Buddy loading from contacts', buddy);
         contactOperations.push(contactMappingManager.saveContact(new Contact(buddy), client));
-      });
+      });*/
 
       return Promise.all(contactOperations)
-      .then(resolve, reject)
-      .done(done);
+      .then(done)
+      .then(resolve, reject);
     })
     .catch(reject);
   });
@@ -300,8 +302,8 @@ function listenToRestEndpoints(server) {
 }
 
 fetchContacts()
-.catch(function (error) {
-  logger.warn('Starting servers without initial contacts fetch', error);
+.catch(function (reason) {
+  logger.warn('Starting servers without initial contacts fetch', reason);
 })
 .then(slackLoadChannels)
 .then(function (channels) {
@@ -318,12 +320,10 @@ fetchContacts()
     logger.info('Startup completed successfully');
     return Promise.resolve();
   })
-  .catch(function (error) {
-    logger.error('Fatal error starting server', error);
-    return Promise.reject();
+  .catch(function (reason) {
+    logger.error('Fatal error starting server', reason);
   });
 })
-.catch(function (error) {
-  logger.error('Fatal error fetching Slack channels', error);
-  return Promise.reject(error);
+.catch(function (reason) {
+  logger.error('Fatal error fetching Slack channels', reason);
 });

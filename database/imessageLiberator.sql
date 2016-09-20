@@ -16,6 +16,7 @@ CREATE TABLE contact_handle (
   handle VARCHAR DEFAULT NULL
 );
 ALTER TABLE contact_handle OWNER TO liberator;
+CREATE INDEX ON contact_handle (handle);
 
 CREATE TABLE message_channel (
   id SERIAL PRIMARY KEY,

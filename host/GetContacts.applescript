@@ -50,9 +50,9 @@ tell application "Contacts"
       end if
 
       if buddyPerson is not equal to missing value then
-        set jsonBuddy to my createDictWith({ {"id", id of buddyPerson}, {"name", name of buddyPerson}, {"handle", buddyHandle} })
+        set jsonBuddy to my createDictWith({ {"imessageId", id of buddyPerson}, {"name", name of buddyPerson}, {"handle", buddyHandle} })
       else
-        set jsonBuddy to my createDictWith({ {"id", |id| of theBuddy}, {"name", |name| of theBuddy}, {"handle", buddyHandle} })
+        set jsonBuddy to my createDictWith({ {"imessageId", |id| of theBuddy}, {"name", |name| of theBuddy}, {"handle", buddyHandle} })
         set errorMessages to errorMessages & ("Contact Person not found for Buddy " & buddyHandle)
       end if
 
