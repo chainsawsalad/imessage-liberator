@@ -224,39 +224,28 @@ function messageFromMe(message) {
 }
 
 function parseContacts(payload) {
-  return new Promise(function (resolve, reject) {
-    var contacts = null;
-    var contactOperations = [];
+  var contacts = [];
+  var contactResult = null;
 
-    try {
-      contacts = JSON.parse(payload.body);
-    } catch (error) {
-      logger.error('Contacts JSON payload is malformed', payload, error);
-      return reject(new Error('Malformed JSON payload'));
-    }
+  try {
+    contactResult = JSON.parse(payload.body);
+  } catch (error) {
+    logger.error('Contacts JSON payload is malformed', payload, error);
+    return Promise.reject(new Error('Malformed JSON payload'));
+  }
 
-    (contacts.errors || []).forEach(function (error) {
-      logger.warn('Host encountered error while parsing contacts:', error);
-    });
-
-    return databaseConnect()
-    .then(function (databaseCallbacks) {
-      var client = databaseCallbacks.client;
-      var done = databaseCallbacks.done;
-
-      contactOperations.push(contactMappingManager.saveContact(new Contact(contacts.buddies[2]), client));
-
-      /*contacts.buddies.forEach(function (buddy) {
-        logger.info('Buddy loading from contacts', buddy);
-        contactOperations.push(contactMappingManager.saveContact(new Contact(buddy), client));
-      });*/
-
-      return Promise.all(contactOperations)
-      .then(done)
-      .then(resolve, reject);
-    })
-    .catch(reject);
+  (contactResult.errors || []).forEach(function (error) {
+    logger.warn('Host encountered error while parsing contacts:', error);
   });
+
+  // contacts.push(new Contact(contactResult.buddies[2]));
+
+  contactResult.buddies.forEach(function (buddy) {
+    logger.info('Buddy loading from contacts', buddy);
+    contacts.push(new Contact(buddy));
+  });
+
+  return contactMappingManager.batchSaveContacts(contacts);
 }
 
 function fetchContacts() {

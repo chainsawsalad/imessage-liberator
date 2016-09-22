@@ -13,7 +13,8 @@ CREATE INDEX ON contact (imessage_id);
 
 CREATE TABLE contact_handle (
   contact_id INT NOT NULL REFERENCES contact (id),
-  handle VARCHAR DEFAULT NULL
+  handle VARCHAR DEFAULT NULL,
+  CONSTRAINT contact_id_handle_constraint UNIQUE (contact_id, handle)
 );
 ALTER TABLE contact_handle OWNER TO liberator;
 CREATE INDEX ON contact_handle (handle);
