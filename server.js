@@ -9,8 +9,8 @@ var SLACK_RTM_CLIENT_EVENTS = SlackClient.CLIENT_EVENTS.RTM;
 var SLACK_RTM_EVENTS = SlackClient.RTM_EVENTS;
 var logger = require(path.join(__dirname, '/include/logger.js'));
 var environment = require(path.join(__dirname, '/include/environment.js'));
-var databaseConnect = require(path.join(__dirname, '/include/database.js'));
 
+var Buddy = require(path.join(__dirname, '/include/Buddy.js'));
 var Contact = require(path.join(__dirname, '/include/Contact.js'));
 var contactMappingManager = require(path.join(__dirname, '/include/contactMappingManager.js'));
 
@@ -238,14 +238,15 @@ function parseContacts(payload) {
     logger.warn('Host encountered error while parsing contacts:', error);
   });
 
-  // contacts.push(new Contact(contactResult.buddies[2]));
-
   contactResult.buddies.forEach(function (buddy) {
     logger.info('Buddy loading from contacts', buddy);
-    contacts.push(new Contact(buddy));
+    contacts.push(new Buddy({
+      contact: new Contact(buddy),
+      handle: buddy.handle
+    }));
   });
 
-  return contactMappingManager.batchSaveContacts(contacts);
+  return contactMappingManager.batchDatabaseOpperation(contactMappingManager.createBuddy, contacts);
 }
 
 function fetchContacts() {
@@ -265,6 +266,48 @@ function fetchContacts() {
         .catch(reject);
       }
     });
+  });
+}
+
+function processContacts() {
+  return fetchContacts()
+  .then(function (result) {
+    logger.silly('Success fetching contacts', result);
+
+    return contactMappingManager.getAllContacts()
+    .then(function (contacts) {
+      var batchOperations = [];
+      contacts.forEach(function (contact) {
+        var newChannelName = generateSlackChannelName(contact.getName());
+        batchOperations.push(function () {
+          return slackJoinChannel(newChannelName)
+          .then(function (channelId) {
+            logger.silly('Joined Slack channel `%s` (%s)', newChannelName, channelId);
+            return Promise.resolve({
+              messageChannel: 'slack',
+              contactId: contact.getId(),
+              channelKey: channelId,
+              channelName: newChannelName
+            });
+          });
+        });
+      });
+
+      return Promise.all(batchOperations)
+      .then(function (contactMappings) {
+        return contactMappingManager.batchDatabaseOpperation(contactMappingManager.createContactMapping, contactMappings);
+      }, function (reason) {
+        logger.warn('Failure saving contact mappings', reason);
+        return Promise.reject(reason);
+      });
+    })
+    .catch(function (reason) {
+      logger.warn('Failure connecting contacts', reason);
+      return Promise.reject(reason);
+    });
+  }, function (reason) {
+    logger.warn('Failure fetching contacts', reason);
+    return Promise.reject(reason);
   });
 }
 
@@ -290,10 +333,7 @@ function listenToRestEndpoints(server) {
   });
 }
 
-fetchContacts()
-.catch(function (reason) {
-  logger.warn('Starting servers without initial contacts fetch', reason);
-})
+processContacts()
 .then(slackLoadChannels)
 .then(function (channels) {
   // need channels to load before listening begins

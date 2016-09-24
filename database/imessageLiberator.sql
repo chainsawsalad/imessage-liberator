@@ -33,6 +33,7 @@ CREATE TABLE contact_mapping (
   message_channel_id INT NOT NULL REFERENCES message_channel (id),
   contact_id INT NOT NULL REFERENCES contact (id),
   channel_key VARCHAR DEFAULT NULL,
-  channel_name VARCHAR DEFAULT NULL
+  channel_name VARCHAR DEFAULT NULL,
+  CONSTRAINT contact_id_message_channel_id_constraint UNIQUE (contact_id, message_channel_id)
 );
 ALTER TABLE contact_mapping OWNER TO liberator;

@@ -4,7 +4,6 @@ function Contact(settings) {
   this.setId(settings.id);
   this.setImessageId(settings.imessageId);
   this.setName(settings.name);
-  this.setHandle(settings.handle);
 }
 
 module.exports = Contact;
@@ -33,20 +32,11 @@ Contact.prototype.getName = function () {
   return this._name || null;
 };
 
-Contact.prototype.setHandle = function (handle) {
-  this._handle = handle;
-};
-
-Contact.prototype.getHandle = function () {
-  return this._handle || null;
-};
-
 Contact.prototype.toJson = function () {
   return {
     id: this.getId(),
     imessageId: this.getImessageId(),
-    name: this.getName(),
-    handle: this.getHandle(),
+    name: this.getName()
   };
 };
 
