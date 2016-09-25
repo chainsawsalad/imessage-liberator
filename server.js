@@ -12,26 +12,25 @@ var environment = require(path.join(__dirname, '/include/environment.js'));
 
 var Buddy = require(path.join(__dirname, '/include/Buddy.js'));
 var Contact = require(path.join(__dirname, '/include/Contact.js'));
+var ChannelMapping = require(path.join(__dirname, '/include/ChannelMapping.js'));
 var contactMappingManager = require(path.join(__dirname, '/include/contactMappingManager.js'));
 
 var slackOauthToken = environment.getSlackOauthToken();
 var insecurePort = environment.getInsecurePort();
 var hostAddress = environment.getHostAddress();
 
-var Channel = {
-  'SLACK': '0'
-};
-
 var senderHandleBySlackChannelIds = {}; // mapping of Slack channel to iMessage buddy
-var slackChannelIdsByName = {}; // if we have a record of the channel here, we assume we've joined
+
+var channelMappingsByImessageId = {};
 var channelTransports = {};
 var messagesToMeQueue = {};
 
-channelTransports[Channel.SLACK] = {
+channelMappingsByImessageId[ChannelMapping.MessageChannel.SLACK] = {};
+channelTransports[ChannelMapping.MessageChannel.SLACK] = {
   web: new SlackWebClient(slackOauthToken),
   rtm: null
 };
-messagesToMeQueue[Channel.SLACK] = [];
+messagesToMeQueue[ChannelMapping.MessageChannel.SLACK] = [];
 
 
 function slackConnectRtmClient() {
@@ -72,7 +71,7 @@ function listenToSlackRtmEndpoints(rtm) {
 
   rtm.on(SLACK_RTM_CLIENT_EVENTS.DISCONNECT, function () {
     logger.error('Slack disconnected from API');
-    channelTransports[Channel.SLACK].rtm = null;
+    channelTransports[ChannelMapping.MessageChannel.SLACK].rtm = null;
     slackConnectRtmClient().then(listenToSlackRtmEndpoints);
   });
 
@@ -98,33 +97,16 @@ function listenToSlackRtmEndpoints(rtm) {
     }
   });
 
-  channelTransports[Channel.SLACK].rtm = rtm;
-}
-
-function slackLoadChannels() {
-  return channelTransports[Channel.SLACK].web.channels.makeAPICall('channels.list')
-  .then(function (response) {
-    var channelIdsByName = {};
-    logger.debug('Slack `channels.list` success', response);
-    response.channels.forEach(function (channel) {
-      channelIdsByName[channel.name] = channel.id;
-    });
-    return channelIdsByName;
-  });
+  channelTransports[ChannelMapping.MessageChannel.SLACK].rtm = rtm;
 }
 
 function slackJoinChannel(channelName) {
-  if (slackChannelIdsByName[channelName]) {
-    return Promise.resolve(slackChannelIdsByName[channelName]);
-  } else {
-    return channelTransports[Channel.SLACK].web.channels.makeAPICall('channels.join', {
-      name: channelName
-    }).then(function (response) {
-      logger.debug('Slack `channels.join` success', response);
-      slackChannelIdsByName[response.channel.name] = response.channel.id;
-      return response.channel.id;
-    });
-  }
+  return channelTransports[ChannelMapping.MessageChannel.SLACK].web.channels.makeAPICall('channels.join', {
+    name: channelName
+  }).then(function (response) {
+    logger.debug('Slack `channels.join` success', response);
+    return Promise.resolve(response.channel.id);
+  });
 }
 
 function slackSendMessage(channelId, message) {
@@ -140,7 +122,7 @@ function slackSendMessage(channelId, message) {
     delete options.icon_emoji;
   }
 
-  return channelTransports[Channel.SLACK].web.chat.makeAPICall('chat.postMessage', options)
+  return channelTransports[ChannelMapping.MessageChannel.SLACK].web.chat.makeAPICall('chat.postMessage', options)
   .then(function (response) {
     logger.debug('Slack `chat.postMessage` success', response);
     return response.message.text;
@@ -152,56 +134,115 @@ function generateSlackChannelName(channelName) {
   return (channelName || '').toLowerCase().replace(/[\s\.]/g, '').slice(0, 21);
 }
 
-function sendMessage(message) {
-  var channelUserMessageQueue = messagesToMeQueue[Channel.SLACK];
-  var newChannelName = generateSlackChannelName(message.senderName);
+function deliverMessage(channelMapping, message, imessageId) {
+  return slackSendMessage(channelMapping.getChannelKey(), message)
+  // remove this message from the queue and check if another exists for this buddy
+  // if so, deliver it
+  .then(function () {
+    var channelUserMessageQueue = messagesToMeQueue[ChannelMapping.MessageChannel.SLACK];
 
-  // TODO: determine if this message goes out to Slack or some other `Channel`
-
-  slackJoinChannel(newChannelName)
-  .then(function (channelId) {
-    senderHandleBySlackChannelIds[channelId] = message.senderHandle;
-    return slackSendMessage(channelId, message);
-  }).then(function () {
     logger.debug('Slack message success');
-    channelUserMessageQueue[message.senderName].shift();
-    if (channelUserMessageQueue[message.senderName].length > 0) {
+    channelUserMessageQueue[imessageId].shift();
+
+    if (channelUserMessageQueue[imessageId].length > 0) {
       logger.debug('Processing Slack queue message');
-      sendMessage(channelUserMessageQueue[message.senderName][0]);
+      deliverMessage(channelMapping, channelUserMessageQueue[imessageId][0], imessageId);
     }
   }).catch(function (reason) {
     logger.error('Failure in sending Slack message', reason);
   });
 }
 
+function buildChannelMapping(theBuddy, message) {
+  var channelName = null;
+  var buddy = theBuddy;
+  if (buddy.getContact() === null) {
+    buddy.setContact(new Contact({
+      imessageId: message.senderImessageId,
+      name: message.senderName
+    }));
+  }
+
+  // save the contact in the db
+  return contactMappingManager.saveBuddy(buddy)
+  // join (or create) the slack channel corresponding to this contact
+  .then(function (savedBuddy) {
+    buddy = savedBuddy;
+    channelName = generateSlackChannelName(buddy.getContact().getName());
+    return slackJoinChannel(channelName);
+  })
+  // save the mapping of this contact to the joined (or created) channel key
+  .then(function (channelKey) {
+    var channelMapping = new ChannelMapping({
+      messageChannel: ChannelMapping.MessageChannel.SLACK,
+      contactId: buddy.getContact().getId(),
+      channelKey: channelKey,
+      channelName: channelName
+    });
+    return contactMappingManager.saveChannelMapping(channelMapping);
+  })
+  // now the message can be delivered
+  .then(function (savedChannelMapping) {
+    var imessageId = buddy.getContact().getImessageId();
+    channelMappingsByImessageId[ChannelMapping.MessageChannel.SLACK][imessageId] = savedChannelMapping;
+    return deliverMessage(savedChannelMapping, message, imessageId);
+  });
+}
+
 function messageToMe(request, response, next) {
   var message = {
     body: request.params.body,
+    senderImessageId: request.params.senderImessageId,
     senderHandle: request.params.senderHandle,
     senderName: request.params.senderName,
     senderImage: request.params.senderImage
   };
-  var channelUserMessageQueue = messagesToMeQueue[Channel.SLACK];
+  var slackChannelUserMessageQueue = messagesToMeQueue[ChannelMapping.MessageChannel.SLACK];
+  var slackChannelMappingsByImessageId = channelMappingsByImessageId[ChannelMapping.MessageChannel.SLACK];
+  var imessageId = message.senderImessageId;
 
   logger.info('Message to me received', message);
 
-  if (!message.body || !message.senderHandle) {
+  if (!message.body || !message.senderHandle || !imessageId) {
     message.error = 'Missing required message fields';
     response.send(500, message);
     return next(message.error);
   }
 
   // there is already a message in the queue
-  if ((channelUserMessageQueue[message.senderName] || []).length > 0) {
+  if ((slackChannelUserMessageQueue[imessageId] || []).length > 0) {
     logger.debug('Queuing Slack message', message);
-    channelUserMessageQueue[message.senderName].push(message);
+    slackChannelUserMessageQueue[message.senderName].push(message);
 
   // the queue is empty
   } else {
-    channelUserMessageQueue[message.senderName] = [
+    slackChannelUserMessageQueue[imessageId] = [
       message
     ];
-    sendMessage(message);
+    if (slackChannelMappingsByImessageId[imessageId]) {
+      return deliverMessage(slackChannelMappingsByImessageId[imessageId], message, imessageId);
+    }
+    // see if a channel mapping exists for this buddy
+    return contactMappingManager.getContactChannelMappingByImessageId(imessageId, ChannelMapping.MessageChannel.SLACK)
+    .then(function (result) {
+      var buddy = new Buddy({
+        contact: result.contact,
+        handle: message.senderHandle
+      });
+      var imessageId = null;
+
+      if (result.channelMapping === null || result.contact === null) {
+        logger.info('Unknown contact mapping', message);
+        return buildChannelMapping(buddy, message);
+      }
+
+      imessageId = result.contact.getImessageId();
+      slackChannelMappingsByImessageId[imessageId] = result.channelMapping;
+      return deliverMessage(result.channelMapping, message, imessageId);
+    })
+    .catch(function (reason) {
+      logger.error('Failure sending message to me', reason);
+    });
   }
 
   response.send(message);
@@ -223,8 +264,8 @@ function messageFromMe(message) {
   });
 }
 
-function parseContacts(payload) {
-  var contacts = [];
+function parseBuddies(payload) {
+  var buddies = [];
   var contactResult = null;
 
   try {
@@ -240,16 +281,19 @@ function parseContacts(payload) {
 
   contactResult.buddies.forEach(function (buddy) {
     logger.info('Buddy loading from contacts', buddy);
-    contacts.push(new Buddy({
+    buddies.push(new Buddy({
       contact: new Contact(buddy),
       handle: buddy.handle
     }));
   });
 
-  return contactMappingManager.batchDatabaseOpperation(contactMappingManager.createBuddy, contacts);
+  return buddies;
 }
 
-function fetchContacts() {
+/**
+ * Request the Buddy contacts from the Host
+ */
+function fetchBuddiesFromHost() {
   return new Promise(function (resolve, reject) {
     httpRequest({
       url: hostAddress + 'contacts.py',
@@ -261,52 +305,85 @@ function fetchContacts() {
         reject(error || body);
       } else {
         logger.info('Contacts fetched from host');
-        parseContacts(body)
-        .then(resolve)
-        .catch(reject);
+        resolve(parseBuddies(body));
       }
     });
   });
 }
 
+/**
+ * Get all host contacts and ensure they are stored in the database along with
+ * their mappings to a message channel
+ */
 function processContacts() {
-  return fetchContacts()
+  var channelNames = [];
+  var contacts = [];
+
+  return fetchBuddiesFromHost()
+  // save newly parsed buddies to db
+  .then(function (buddies) {
+    return contactMappingManager.batchDatabaseOpperation(contactMappingManager.saveBuddy, buddies);
+  })
   .then(function (result) {
-    logger.silly('Success fetching contacts', result);
+    logger.silly('Success fetching and storing contacts', result);
 
-    return contactMappingManager.getAllContacts()
-    .then(function (contacts) {
-      var batchOperations = [];
-      contacts.forEach(function (contact) {
-        var newChannelName = generateSlackChannelName(contact.getName());
-        batchOperations.push(function () {
-          return slackJoinChannel(newChannelName)
-          .then(function (channelId) {
-            logger.silly('Joined Slack channel `%s` (%s)', newChannelName, channelId);
-            return Promise.resolve({
-              messageChannel: 'slack',
-              contactId: contact.getId(),
-              channelKey: channelId,
-              channelName: newChannelName
-            });
-          });
+    // buddy contacts have been fetched from host and stored
+    // now we make sure for each one there is a corresponding message channel key
+    return contactMappingManager.getAllChannelMappingsByContact();
+  })
+  .then(function (contactAndChannelMappingPairs) {
+    var batchOperations = [];
+
+    // loop through the contacts and select those without channel mappings
+    contactAndChannelMappingPairs.forEach(function (result) {
+      var newChannelName;
+      var joinPromise;
+      if (result.channelMapping === null) {
+        newChannelName = generateSlackChannelName(result.contact.getName());
+        joinPromise = slackJoinChannel(newChannelName)
+        .then(function (channelId) {
+          logger.silly('Joined Slack channel `%s` (%s)', newChannelName, channelId);
+          return Promise.resolve(channelId);
         });
+        channelNames.push(newChannelName);
+        contacts.push(result.contact);
+        batchOperations.push(joinPromise);
+      } else {
+        channelMappingsByImessageId[ChannelMapping.MessageChannel.SLACK][result.contact.getImessageId()] = result.channelMapping;
+      }
+    });
+
+    if (batchOperations.length === 0) {
+      return Promise.resolve();
+    }
+
+    // create channel mapping keys for the contacts without mappings yet
+    return Promise.all(batchOperations)
+    // at this time all message channel keys have been created and joined
+    // now we will store this information as channel mappings
+    .then(function (channelIds) {
+      var contactMappings = [];
+
+      channelIds.forEach(function (channelId, index) {
+        contactMappings.push(new ChannelMapping({
+          messageChannel: ChannelMapping.MessageChannel.SLACK,
+          contactId: contacts[index].getId(),
+          channelKey: channelId,
+          channelName: channelNames[index]
+        }));
       });
 
-      return Promise.all(batchOperations)
-      .then(function (contactMappings) {
-        return contactMappingManager.batchDatabaseOpperation(contactMappingManager.createContactMapping, contactMappings);
-      }, function (reason) {
-        logger.warn('Failure saving contact mappings', reason);
-        return Promise.reject(reason);
-      });
+      return contactMappingManager.batchDatabaseOpperation(contactMappingManager.saveChannelMapping, contactMappings);
     })
-    .catch(function (reason) {
-      logger.warn('Failure connecting contacts', reason);
-      return Promise.reject(reason);
+    .then(function (channelMappings) {
+      channelMappings.forEach(function (channelMapping, index) {
+        channelMappingsByImessageId[ChannelMapping.MessageChannel.SLACK][contacts[index].getImessageId()] = channelMapping;
+      });
+      return Promise.resolve();
     });
-  }, function (reason) {
-    logger.warn('Failure fetching contacts', reason);
+  })
+  .catch(function (reason) {
+    logger.warn('Failure processing host contacts', reason);
     return Promise.reject(reason);
   });
 }
@@ -334,11 +411,7 @@ function listenToRestEndpoints(server) {
 }
 
 processContacts()
-.then(slackLoadChannels)
-.then(function (channels) {
-  // need channels to load before listening begins
-  slackChannelIdsByName = channels;
-
+.then(function () {
   return Promise.all([
     slackConnectRtmClient(),
     startRestServer(),

@@ -22,52 +22,63 @@ tell application "Messages"
   end repeat
 end tell
 
-tell application "Contacts"
-  if not running then run
+try
+  repeat with theBuddy in imessageBuddies
+    set buddyHandle to |handle| of theBuddy
+    set buddyPerson to getContact((|name| of theBuddy), buddyHandle)
 
-  try
-    repeat with theBuddy in imessageBuddies
-      set buddyPerson to missing value
-      set buddyHandle to |handle| of theBuddy
+    if buddyPerson is not equal to missing value then
+      set jsonBuddy to my createDictWith({ {"imessageId", id of buddyPerson}, {"name", name of buddyPerson}, {"handle", buddyHandle} })
+    else
+      set jsonBuddy to my createDictWith({ {"imessageId", |id| of theBuddy}, {"name", |name| of theBuddy}, {"handle", buddyHandle} })
+      set errorMessages to errorMessages & ("Contact Person not found for Buddy " & buddyHandle)
+    end if
 
-      set personList to (people whose value of phones contains buddyHandle)
-      repeat with thePerson in personList
-        set buddyPerson to thePerson
-      end repeat
+    set imessageBuddyJson to imessageBuddyJson & jsonBuddy
+  end repeat
 
-      if buddyPerson is equal to missing value then
-        set personList to (people whose value of emails contains buddyHandle)
-        repeat with thePerson in personList
-          set buddyPerson to thePerson
-        end repeat
-      end if
-
-      if buddyPerson is equal to missing value then
-        set personList to (people whose name is (|name| of theBuddy))
-        repeat with thePerson in personList
-          set buddyPerson to thePerson
-        end repeat
-      end if
-
-      if buddyPerson is not equal to missing value then
-        set jsonBuddy to my createDictWith({ {"imessageId", id of buddyPerson}, {"name", name of buddyPerson}, {"handle", buddyHandle} })
-      else
-        set jsonBuddy to my createDictWith({ {"imessageId", |id| of theBuddy}, {"name", |name| of theBuddy}, {"handle", buddyHandle} })
-        set errorMessages to errorMessages & ("Contact Person not found for Buddy " & buddyHandle)
-      end if
-
-      set imessageBuddyJson to imessageBuddyJson & jsonBuddy
-    end repeat
-
-  on error errorMessage
-    set errorMessages to errorMessages & errorMessage
-  end try
-end tell
+on error errorMessage
+  set errorMessages to errorMessages & errorMessage
+end try
 
 set imessageBuddyJson to my createDictWith({ {"buddies", imessageBuddyJson}, {"errors", errorMessages} })
 
 log my encode(imessageBuddyJson)
 
+# duplicate code in Liberator.applescript because AppleScript sucks
+on getContact(theFullName, theHandle)
+  set buddyPerson to missing value
+
+  tell application "Contacts"
+    if not running then run
+
+    set personList to (people whose name is theFullName)
+
+    if (count of personList) is greater than 0 then
+      repeat with thePerson in personList
+        if value of phones of thePerson contains theHandle then
+          set buddyPerson to thePerson
+          exit repeat
+        end if
+      end repeat
+
+      if buddyPerson is equal to missing value then
+        repeat with thePerson in personList
+          if value of emails of thePerson contains theHandle then
+            set buddyPerson to thePerson
+            exit repeat
+          end if
+        end repeat
+      end if
+
+      if buddyPerson is equal to missing value then
+        set buddyPerson to (first item in personList)
+      end if
+    end if
+  end tell
+
+  return buddyPerson
+end
 
 # JSON encoding copied from https://github.com/mgax/applescript-json
 

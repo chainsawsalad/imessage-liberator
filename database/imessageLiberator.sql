@@ -20,15 +20,15 @@ ALTER TABLE contact_handle OWNER TO liberator;
 CREATE INDEX ON contact_handle (handle);
 
 CREATE TABLE message_channel (
-  id SERIAL PRIMARY KEY,
+  id INT PRIMARY KEY,
   name VARCHAR DEFAULT NULL
 );
 ALTER TABLE message_channel OWNER TO liberator;
-INSERT INTO message_channel (name) VALUES (
-  'slack'
+INSERT INTO message_channel (id, name) VALUES (
+  0, 'SLACK'
 );
 
-CREATE TABLE contact_mapping (
+CREATE TABLE contact_channel_mapping (
   id SERIAL PRIMARY KEY,
   message_channel_id INT NOT NULL REFERENCES message_channel (id),
   contact_id INT NOT NULL REFERENCES contact (id),
@@ -36,4 +36,4 @@ CREATE TABLE contact_mapping (
   channel_name VARCHAR DEFAULT NULL,
   CONSTRAINT contact_id_message_channel_id_constraint UNIQUE (contact_id, message_channel_id)
 );
-ALTER TABLE contact_mapping OWNER TO liberator;
+ALTER TABLE contact_channel_mapping OWNER TO liberator;
