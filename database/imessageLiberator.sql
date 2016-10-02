@@ -5,29 +5,36 @@ CREATE DATABASE liberator OWNER liberator;
 
 CREATE TABLE contact (
   id SERIAL PRIMARY KEY,
-  full_name VARCHAR DEFAULT NULL,
-  handle VARCHAR DEFAULT NULL
+  imessage_id VARCHAR NOT NULL UNIQUE,
+  full_name VARCHAR DEFAULT NULL
 );
 ALTER TABLE contact OWNER TO liberator;
+CREATE INDEX ON contact (imessage_id);
 
-CREATE TABLE message_group (
-  id SERIAL PRIMARY KEY,
+CREATE TABLE contact_handle (
+  contact_id INT NOT NULL REFERENCES contact (id),
+  handle VARCHAR DEFAULT NULL,
+  disabled BOOLEAN DEFAULT FALSE,
+  CONSTRAINT contact_id_handle_constraint UNIQUE (contact_id, handle)
+);
+ALTER TABLE contact_handle OWNER TO liberator;
+CREATE INDEX ON contact_handle (handle);
+
+CREATE TABLE message_channel (
+  id INT PRIMARY KEY,
   name VARCHAR DEFAULT NULL
 );
-ALTER TABLE message_group OWNER TO liberator;
+ALTER TABLE message_channel OWNER TO liberator;
+INSERT INTO message_channel (id, name) VALUES (
+  0, 'SLACK'
+);
 
-CREATE TABLE group_member (
+CREATE TABLE contact_channel_mapping (
   id SERIAL PRIMARY KEY,
+  message_channel_id INT NOT NULL REFERENCES message_channel (id),
   contact_id INT NOT NULL REFERENCES contact (id),
-  group_id INT NOT NULL REFERENCES message_group (id)
+  channel_key VARCHAR DEFAULT NULL,
+  channel_name VARCHAR DEFAULT NULL,
+  CONSTRAINT contact_id_message_channel_id_constraint UNIQUE (contact_id, message_channel_id)
 );
-ALTER TABLE group_member OWNER TO liberator;
-
-CREATE TABLE message (
-  id SERIAL PRIMARY KEY,
-  group_member_id INT NOT NULL REFERENCES group_member (id),
-  body VARCHAR DEFAULT NULL,
-  attachment VARCHAR DEFAULT NULL,
-  message_received TIMESTAMP DEFAULT NULL
-);
-ALTER TABLE message OWNER TO liberator;
+ALTER TABLE contact_channel_mapping OWNER TO liberator;

@@ -96,7 +96,7 @@ module.exports.getIpAddress = function () {
 module.exports.getHostAddress = function () {
   var address = process.env.DOCKER_HOST || '10.200.10.1';
   var port = process.env.IMESSAGE_LIBERATOR_PORT || '8999';
-  return 'http://' + address + ':' + port + '/cgi-bin/liberator.py';
+  return 'http://' + address + ':' + port + '/cgi-bin/';
 };
 
 module.exports.getSlackOauthToken = function () {

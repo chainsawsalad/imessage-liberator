@@ -7,17 +7,25 @@ using terms from application "Messages"
 	on rpc(theBuddy, theMessage, theType, theEventName)
 		set theServiceId to (id of service of theBuddy)
 		set theServiceType to (service type of service of theBuddy)
+		set theBuddyId to (id of theBuddy)
 		set theHandle to (handle of theBuddy)
 		set theFullName to (full name of theBuddy)
 		set theBuddyImage to (image of theBuddy)
 
-		my logger("(" & theEventName & ", " & theType & ") [" & theMessage & "] from [" & theFullName & ", " & theHandle & ", " & theBuddyImage & ", " & theServiceId & ", " & theServiceType & "]")
-
 		if (theServiceType as string) is equal to "iMessage" then
+			set theBuddyContact to getContact(theFullName, theHandle)
+			if theBuddyContact is not equal to missing value then
+				set theBuddyId to (id of theBuddyContact)
+			else
+				my logger("Contact Person not found for Buddy " & theHandle)
+			end if
+
+			my logger("(" & theEventName & ", " & theType & ") [" & theMessage & "] from [" & theFullName & ", " & theHandle & ", " & theBuddyId & ", " & theBuddyImage & ", " & theServiceId & ", " & theServiceType & "]")
+
 			try
 				set scriptName to "liberateMessage.sh"
 				set scriptName to (do shell script ("eval `/usr/libexec/path_helper -s`; which " & scriptName))
-				set rpcCall to scriptName & " \"" & theMessage & "\" \"" & theHandle & "\" \"" & theFullName & "\""
+				set rpcCall to scriptName & " \"" & theMessage & "\" \"" & theBuddyId & "\" \"" & theHandle & "\" \"" & theFullName & "\""
 
 				if theBuddyImage is not equal to missing value then
 					set rpcCall to rpcCall & " \"" & theBuddyImage & "\""
@@ -125,3 +133,38 @@ using terms from application "Messages"
 	end buddy became unavailable
 
 end using terms from
+
+# duplicate code in GetContacts.applescript because AppleScript sucks
+on getContact(theFullName, theHandle)
+	set buddyPerson to missing value
+
+	tell application "Contacts"
+		if not running then run
+
+		set personList to (people whose name is theFullName)
+
+		if (count of personList) is greater than 0 then
+			repeat with thePerson in personList
+				if value of phones of thePerson contains theHandle then
+					set buddyPerson to thePerson
+					exit repeat
+				end if
+			end repeat
+
+			if buddyPerson is equal to missing value then
+				repeat with thePerson in personList
+					if value of emails of thePerson contains theHandle then
+						set buddyPerson to thePerson
+						exit repeat
+					end if
+				end repeat
+			end if
+
+			if buddyPerson is equal to missing value then
+				set buddyPerson to (first item in personList)
+			end if
+		end if
+	end tell
+
+	return buddyPerson
+end
