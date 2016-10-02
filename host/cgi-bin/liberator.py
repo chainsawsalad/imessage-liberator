@@ -2,19 +2,13 @@
 
 from os.path import expanduser
 from time import sleep
-import subprocess, json, sys, os
+import cgi, subprocess, json, sys, os
 
 messagesDbPath = '%s/Library/Messages/chat.db' % expanduser('~')
 
-# manually parse the QUERY_STRING because "+" is being weirdly decoded via FieldStorage
-queryParameters = {}
-keyValues = os.environ['QUERY_STRING'].split('&')
-for pair in keyValues:
-  key, value = pair.split('=')
-  queryParameters[key] = value
-
-body = queryParameters['body'] or ''
-messageTo = queryParameters['messageTo'] or ''
+arguments = cgi.FieldStorage()
+body = arguments.getvalue('body', '')
+messageTo = arguments.getvalue('messageTo', '')
 payload = {'body': body, 'messageTo': messageTo}
 
 sendExitCode = subprocess.call(['./SendImessage.applescript', messageTo, body])
