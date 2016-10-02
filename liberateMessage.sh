@@ -6,9 +6,9 @@
 curl -X POST \
   -H "Cache-Control: no-cache" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "body=$1" \
-  -d "senderImessageId=$2" \
-  -d "senderHandle=$3" \
-  -d "senderName=$4" \
-  -d "senderImage=$5" \
+  --data-urlencode "body=$1" \
+  --data-urlencode "senderImessageId=$2" \
+  --data-urlencode "senderHandle=$3" \
+  --data-urlencode "senderName=$4" \
+  --data-urlencode "senderImage=$5" \
   "http://127.0.0.1/message/receive"

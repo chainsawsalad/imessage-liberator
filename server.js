@@ -75,7 +75,7 @@ function listenToSlackRtmEndpoints(rtm) {
     slackConnectRtmClient().then(listenToSlackRtmEndpoints);
   });
 
-  rtm.on(SLACK_RTM_EVENTS.MESSAGE, function (message) {
+  rtm.on(SLACK_RTM_EVENTS.MESSAGE, function slackToImessage(message) {
     var recipientHandle;
 
     // only listen to pure messages
@@ -84,11 +84,42 @@ function listenToSlackRtmEndpoints(rtm) {
 
       recipientHandle = senderHandleBySlackChannelIds[message.channel];
       if (!recipientHandle) {
-        logger.warn('Message from me not sent: Unknown recipient handle for channel', message);
+        logger.info('Fetching buddy not in cache for channel `%s`', message.channel);
+        contactMappingManager.getBuddyByChannelKey(message.channel)
+        .then(function (buddy) {
+          senderHandleBySlackChannelIds[message.channel] = buddy.getHandle(); // update cache
+          slackToImessage(message); // try again with updated cache
+        })
+        .catch(function (error) {
+          logger.warn('Message from me not sent: Unknown recipient handle for channel', message, error);
+          // TODO: report back to slack
+        });
+
       } else {
         messageFromMe({
           messageTo: recipientHandle,
           body: message.text
+        })
+        .catch(function (error) {
+          if (error === 'invalid handle') {
+            contactMappingManager.disableHandle(recipientHandle)
+            .then(function (alternateHandle) {
+              if (alternateHandle) {
+                senderHandleBySlackChannelIds[message.channel] = alternateHandle; // update cache
+              } else {
+                logger.warn('Removing handle `%s` from cache without a replacement. Channel `%s` is currently unmapped!', recipientHandle, message.channel);
+                delete senderHandleBySlackChannelIds[message.channel]; // remove from cache entirely
+              }
+              slackToImessage(message); // try again with updated cache
+            })
+            .catch(function (error) {
+              logger.warn('Unable to disable handle `%s`', recipientHandle, error);
+              // TODO: report back to slack
+            });
+          } else {
+            logger.warn('Message failed to send to recipient `%s`', recipientHandle, error);
+            // TODO: report back to slack
+          }
         });
       }
     } else if (message.subtype === 'file_share') {
@@ -153,13 +184,13 @@ function deliverMessage(channelMapping, message, imessageId) {
   });
 }
 
-function buildChannelMapping(theBuddy, message) {
+function buildChannelMapping(theBuddy, messageQueue) {
   var channelName = null;
   var buddy = theBuddy;
   if (buddy.getContact() === null) {
     buddy.setContact(new Contact({
-      imessageId: message.senderImessageId,
-      name: message.senderName
+      imessageId: messageQueue[0].senderImessageId,
+      name: messageQueue[0].senderName
     }));
   }
 
@@ -185,7 +216,10 @@ function buildChannelMapping(theBuddy, message) {
   .then(function (savedChannelMapping) {
     var imessageId = buddy.getContact().getImessageId();
     channelMappingsByImessageId[ChannelMapping.MessageChannel.SLACK][imessageId] = savedChannelMapping;
-    return deliverMessage(savedChannelMapping, message, imessageId);
+    if (messageQueue.length > 0) {
+      return deliverMessage(savedChannelMapping, messageQueue[0], imessageId);
+    }
+    return Promise.resolve();
   });
 }
 
@@ -233,15 +267,20 @@ function messageToMe(request, response, next) {
 
       if (result.channelMapping === null || result.contact === null) {
         logger.info('Unknown contact mapping', message);
-        return buildChannelMapping(buddy, message);
+        return buildChannelMapping(buddy, slackChannelUserMessageQueue[imessageId]);
       }
 
       imessageId = result.contact.getImessageId();
       slackChannelMappingsByImessageId[imessageId] = result.channelMapping;
       return deliverMessage(result.channelMapping, message, imessageId);
+    }, function (reason) {
+      logger.warn('Unknown contact `%s`', imessageId, reason);
+      // TODO: create contact?
+
     })
     .catch(function (reason) {
       logger.error('Failure sending message to me', reason);
+      // TODO: add contact
     });
   }
 
@@ -250,17 +289,25 @@ function messageToMe(request, response, next) {
 }
 
 function messageFromMe(message) {
-  httpRequest({
-    url: hostAddress + 'liberator.py',
-    method: 'POST',
-    json: true,
-    form: message
-  }, function (error, response, body) {
-    if (error || response.statusCode >= 400 || !body.ok) {
-      logger.error('Message from me failed to send: %s', error || body, message);
-    } else {
-      logger.info('Message from me sent', message, body);
-    }
+  return new Promise(function (resolve, reject) {
+    httpRequest({
+      url: hostAddress + 'liberator.py',
+      method: 'POST',
+      json: true,
+      form: message
+    }, function (error, response, body) {
+      if (error || response.statusCode >= 400 || !body.ok) {
+        var errorResolve = error || body;
+        logger.error('Message from me failed to send: %s', error || body, message);
+        if ((body || {}).error === 'invalid handle') {
+          errorResolve = body.error;
+        }
+        reject(errorResolve);
+      } else {
+        logger.info('Message from me sent', message, body);
+        resolve();
+      }
+    });
   });
 }
 
@@ -383,7 +430,7 @@ function processContacts() {
     });
   })
   .catch(function (reason) {
-    logger.warn('Failure processing host contacts', reason);
+    logger.warn('Failure processing host contacts');
     return Promise.reject(reason);
   });
 }
@@ -415,10 +462,16 @@ processContacts()
   return Promise.all([
     slackConnectRtmClient(),
     startRestServer(),
+    contactMappingManager.getAllChannelMappingsByHandle()
   ])
   .then(function (values) {
     listenToSlackRtmEndpoints(values[0]);
     listenToRestEndpoints(values[1]);
+
+    // build cache of handles by channel id
+    values[2].forEach(function (buddyChannelMapping) {
+      senderHandleBySlackChannelIds[buddyChannelMapping.channelMapping.getChannelKey()] = buddyChannelMapping.buddy.getHandle();
+    });
     logger.info('Startup completed successfully');
     return Promise.resolve();
   })

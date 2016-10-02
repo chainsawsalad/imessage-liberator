@@ -3,6 +3,7 @@
 function Buddy(settings) {
   this.setContact(settings.contact);
   this.setHandle(settings.handle);
+  this.setDisabled(settings.disabled);
 }
 
 module.exports = Buddy;
@@ -23,10 +24,19 @@ Buddy.prototype.getHandle = function () {
   return this._handle || null;
 };
 
+Buddy.prototype.setDisabled = function (disabled) {
+  this._disabled = !!disabled;
+};
+
+Buddy.prototype.isDisabled = function () {
+  return this._disabled || false;
+};
+
 Buddy.prototype.toJson = function () {
   return {
     contact: this.getContact().toJson(),
-    handle: this.getHandle()
+    handle: this.getHandle(),
+    disabled: this.isDisabled()
   };
 };
 

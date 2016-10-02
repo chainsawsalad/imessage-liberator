@@ -58,7 +58,7 @@ function queryWrapper(query, client) {
   .catch(function (reason) {
     if (typeof client === 'undefined') {
       return new Promise(function (resolve, reject) {
-        logger.error('Failure to create contact', reason);
+        logger.error('Failure to create contact');
         context.client.query('ROLLBACK', function (error) {
           if (error) {
             return reject(error);
@@ -135,7 +135,7 @@ module.exports.batchDatabaseOpperation = function (operator, objectBatch) {
   })
   .catch(function (reason) {
     return new Promise(function (resolve, reject) {
-      logger.error('Failure to iterate contacts', reason);
+      logger.error('Failure to iterate contacts');
       client.query('ROLLBACK', function (error) {
         if (error) {
           return reject(error);
@@ -254,7 +254,7 @@ module.exports.saveBuddy = function (buddy, client) {
   .catch(function (reason) {
     if (typeof client === 'undefined') {
       return new Promise(function (resolve, reject) {
-        logger.error('Failure to create contact', reason);
+        logger.error('Failure to create contact');
         context.client.query('ROLLBACK', function (error) {
           if (error) {
             return reject(error);
@@ -331,7 +331,7 @@ module.exports.getContactChannelMappingByImessageId = function (imesssageId, mes
     });
   })
   .catch(function (reason) {
-    logger.error('Failure to get contact and/or channel mapping', reason);
+    logger.error('Failure to get contact and/or channel mapping');
     return Promise.reject(reason);
   })
   .then(function (result) {
@@ -391,7 +391,7 @@ function getContactByImessageId(imessageId, client) {
     });
   })
   .catch(function (reason) {
-    logger.error('Failure to get contact', reason);
+    logger.error('Failure to get contact');
     return reason;
   })
   .then(function (result) {
@@ -442,7 +442,7 @@ module.exports.getAllContacts = function (client) {
     });
   })
   .catch(function (reason) {
-    logger.error('Failure to get contact', reason);
+    logger.error('Failure to get contact');
     return reason;
   })
   .then(function (result) {
@@ -481,10 +481,10 @@ module.exports.getAllChannelMappingsByContact = function (messageChannel, client
   })
   .then(function () {
     return new Promise(function (resolve, reject) {
-      var query = 'SELECT ccm.id AS "channelMappingId", ccm.message_channel_id AS "messageChannel", ccm.contact_id AS "contactId", ' +
-          'ccm.channel_key AS "channelKey", ccm.channel_name AS "channelName", contact.imessage_id AS "contactImessageId", ' +
+      var query = 'SELECT ccm.id AS "channelMappingId", ccm.message_channel_id AS "messageChannel", ccm.channel_key AS "channelKey", ' +
+          'ccm.channel_name AS "channelName", contact.id AS "contactId", contact.imessage_id AS "contactImessageId", ' +
           'contact.full_name AS "contactName" FROM contact ' +
-        'JOIN contact_channel_mapping AS ccm ON contact.id = ccm.contact_id';
+        'LEFT OUTER JOIN contact_channel_mapping AS ccm ON contact.id = ccm.contact_id';
       context.client.query(query, function (error, result) {
         var channelMapping = null;
 
@@ -515,7 +515,7 @@ module.exports.getAllChannelMappingsByContact = function (messageChannel, client
     });
   })
   .catch(function (reason) {
-    logger.error('Failure to get channel mappings', reason);
+    logger.error('Failure to get channel mappings');
     return reason;
   })
   .then(function (result) {
@@ -556,9 +556,10 @@ module.exports.getAllChannelMappingsByHandle = function (messageChannel, client)
     return new Promise(function (resolve, reject) {
       var query = 'SELECT ccm.id AS "channelMappingId", ccm.message_channel_id AS "messageChannel", ccm.contact_id AS "contactId", ' +
           'ccm.channel_key AS "channelKey", ccm.channel_name AS "channelName", contact.imessage_id AS "imessageId", ' +
-          'contact.full_name AS "contactName", contact_handle.handle AS "buddyHandle" FROM contact_handle ' +
+          'contact.full_name AS "contactName", contact_handle.handle AS "buddyHandle", contact_handle.disabled FROM contact_handle ' +
         'JOIN contact ON contact.id = contact_handle.contact_id ' +
-        'JOIN contact_channel_mapping AS ccm ON contact_handle.contact_id = ccm.contact_id';
+        'JOIN contact_channel_mapping AS ccm ON contact_handle.contact_id = ccm.contact_id ' +
+        'WHERE contact_handle.disabled = FALSE';
       context.client.query(query, function (error, result) {
         if (!error) {
           context.result = (result.rows || []).map(function (result) {
@@ -569,7 +570,8 @@ module.exports.getAllChannelMappingsByHandle = function (messageChannel, client)
                   imessageId: result.contactImessageId,
                   name: result.contactName
                 }),
-                handle: result.buddyHandle
+                handle: result.buddyHandle,
+                disabled: result.disabled
               }),
               channelMapping: new ChannelMapping({
                 id: result.channelMappingId,
@@ -587,7 +589,7 @@ module.exports.getAllChannelMappingsByHandle = function (messageChannel, client)
     });
   })
   .catch(function (reason) {
-    logger.error('Failure to get channel mappings', reason);
+    logger.error('Failure to get channel mappings');
     return reason;
   })
   .then(function (result) {
@@ -676,7 +678,204 @@ module.exports.saveChannelMapping = function (channelMapping, client) {
   .catch(function (reason) {
     if (typeof client === 'undefined') {
       return new Promise(function (resolve, reject) {
-        logger.error('Failure to create contact', reason);
+        logger.error('Failure to create contact');
+        context.client.query('ROLLBACK', function (error) {
+          if (error) {
+            return reject(error);
+          }
+          return resolve(reason);
+        });
+      });
+    }
+    return Promise.resolve(reason);
+  })
+  .then(function (result) {
+    if (typeof context.done === 'function') {
+      context.done();
+    }
+    context = null;
+
+    if (result instanceof Error) {
+      return Promise.reject(result);
+    }
+    return Promise.resolve(result);
+  });
+};
+
+/**
+ * Get the buddy mapping for a channel by the channel key
+ * @param {String} channelKey - The channel's key for which to get the buddy
+ * @return {Promise} Resolves to the mapped Buddy
+ */
+module.exports.getBuddyByChannelKey = function (channelKey, client) {
+  var context = {
+    client: client
+  };
+  return new Promise(function (resolve, reject) {
+    if (typeof client === 'undefined') {
+      return databaseConnect()
+      .catch(reject)
+      .then(function (databaseCallbacks) {
+        context.client = databaseCallbacks.client;
+        context.done = databaseCallbacks.done;
+      })
+      .then(resolve);
+    }
+    return resolve();
+  })
+  .then(function () {
+    if (typeof client === 'undefined') {
+      return new Promise(function (resolve, reject) {
+        context.client.query('BEGIN', function (error, result) {
+          if (error) {
+            return reject(error);
+          }
+          resolve(result);
+        });
+      });
+    }
+    return Promise.resolve();
+  })
+  .then(function () {
+    return new Promise(function (resolve, reject) {
+      var query = 'SELECT contact.id, contact.imessage_id AS "imessageId", contact.full_name AS "contactName", ' +
+          'contact_handle.handle AS "buddyHandle", contact_handle.disabled FROM contact_handle ' +
+        'JOIN contact ON contact.id = contact_handle.contact_id ' +
+        'JOIN contact_channel_mapping ON contact_channel_mapping.channel_id = contact.id ' +
+        'WHERE contact_channel_mapping.channelKey = $1 AND contact_handle.disabled = FALSE LIMIT 1';
+      var queryParameters = [
+        channelKey
+      ];
+      context.client.query(query, queryParameters, function (error, result) {
+        var row;
+        if (!error) {
+          if (result.rows.length > 0) {
+            row = result.rows[0];
+            return resolve(new Buddy({
+              contact: new Contact({
+                id: row.contactId,
+                imessageId: row.contactImessageId,
+                name: row.contactName
+              }),
+              handle: row.buddyHandle,
+              disabled: row.disabled
+            }));
+          }
+          error = new Error('Expected return rows empty');
+        }
+        return reject(error);
+      });
+    });
+  })
+  .then(function (result) {
+    if (typeof client === 'undefined') {
+      return new Promise(function (resolve, reject) {
+        context.client.query('COMMIT', function (error) {
+          if (error) {
+            return reject(error);
+          }
+          return resolve(result);
+        });
+      });
+    }
+    return Promise.resolve(result);
+  })
+  .catch(function (reason) {
+    if (typeof client === 'undefined') {
+      return new Promise(function (resolve, reject) {
+        logger.error('Failure to create contact');
+        context.client.query('ROLLBACK', function (error) {
+          if (error) {
+            return reject(error);
+          }
+          return resolve(reason);
+        });
+      });
+    }
+    return Promise.resolve(reason);
+  })
+  .then(function (result) {
+    if (typeof context.done === 'function') {
+      context.done();
+    }
+    context = null;
+
+    if (result instanceof Error) {
+      return Promise.reject(result);
+    }
+    return Promise.resolve(result);
+  });
+};
+
+/**
+ * Set a handle row to disabled
+ * @param {String} handle - The handle to disable
+ * @return {Promise} Resolves to an alternate, non-disabled handle for the contact mapping's channel if one exists
+ */
+module.exports.disableHandle = function (handle, client) {
+  var context = {
+    client: client
+  };
+  return new Promise(function (resolve, reject) {
+    if (typeof client === 'undefined') {
+      return databaseConnect()
+      .catch(reject)
+      .then(function (databaseCallbacks) {
+        context.client = databaseCallbacks.client;
+        context.done = databaseCallbacks.done;
+      })
+      .then(resolve);
+    }
+    return resolve();
+  })
+  .then(function () {
+    if (typeof client === 'undefined') {
+      return new Promise(function (resolve, reject) {
+        context.client.query('BEGIN', function (error, result) {
+          if (error) {
+            return reject(error);
+          }
+          resolve(result);
+        });
+      });
+    }
+    return Promise.resolve();
+  })
+  .then(function () {
+    return new Promise(function (resolve, reject) {
+      var query = 'UPDATE contact_handle ch SET disabled = true WHERE handle = $1' +
+        'RETURNING (SELECT handle from contact_handle WHERE contact_id = ch.contact_id AND disabled = FALSE)';
+      var queryParameters = [
+        handle
+      ];
+      context.client.query(query, queryParameters, function (error, result) {
+        if (!error) {
+          if (result.rows.length > 0) {
+            return resolve(result.rows[0].handle);
+          }
+          error = new Error('Expected return rows empty');
+        }
+        return reject(error);
+      });
+    });
+  })
+  .then(function (result) {
+    if (typeof client === 'undefined') {
+      return new Promise(function (resolve, reject) {
+        context.client.query('COMMIT', function (error) {
+          if (error) {
+            return reject(error);
+          }
+          return resolve(result);
+        });
+      });
+    }
+    return Promise.resolve(result);
+  })
+  .catch(function (reason) {
+    if (typeof client === 'undefined') {
+      return new Promise(function (resolve, reject) {
+        logger.error('Failure to create contact');
         context.client.query('ROLLBACK', function (error) {
           if (error) {
             return reject(error);
